@@ -16,7 +16,7 @@ data object Calendar : NavKey
 data class ScheduleCreate(val date: String = "") : NavKey
 
 @Serializable
-data class ScheduleEdit(val scheduleId: String = "") : NavKey
+data class ScheduleEdit(val scheduleId: Long = 0) : NavKey
 
 @Serializable
 data object Voice : NavKey

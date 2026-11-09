@@ -63,6 +63,12 @@ class DocumentAnalyzerTest {
     }
 
     @Test
+    fun appFakeOutputIsExtracted() = runTest {
+        val result = analyzer(FakeExternalAiClient()).analyze(png)
+        assertEquals("건강검진", (result as DocumentAnalysis.Extracted).fields.title)
+    }
+
+    @Test
     fun onlyFormatsTheServiceAcceptsAreSent() = runTest {
         val client = FakeClient({ checkup })
         val documents = analyzer(client)
