@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import java.time.Duration
+import java.time.LocalTime
 
 @Entity(tableName = "settings") // FR-07
 data class Settings(
@@ -13,6 +14,8 @@ data class Settings(
     @ColumnInfo(name = "speech_rate") val speechRate: SpeechRate = SpeechRate.NORMAL,
     @ColumnInfo(name = "remind_before") // at least one
     val remindBefore: List<Duration> = listOf(Duration.ofDays(1), Duration.ofHours(1)),
+    @ColumnInfo(name = "morning_reminder_time") // daily summary, base of untimed schedules
+    val morningReminderTime: LocalTime = LocalTime.of(6, 0),
     @ColumnInfo(name = "voice_notification_enabled") val voiceNotificationEnabled: Boolean = true,
     @ColumnInfo(name = "external_transfer_consent") val externalTransferConsent: Boolean = false,
 ) {

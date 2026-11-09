@@ -55,6 +55,11 @@ class ScheduleRepository(private val db: AppDatabase) {
 
     suspend fun getPendingReminders(): List<ReminderWithSchedule> = dao.getPendingReminders()
 
+    suspend fun getPendingReminders(scheduleId: Long): List<ReminderWithSchedule> =
+        dao.getPendingReminders(scheduleId)
+
+    suspend fun getPendingReminder(id: Long): ReminderWithSchedule? = dao.getPendingReminder(id)
+
     suspend fun markNotified(id: Long): Boolean =
         dao.markNotified(id) > 0 // false if missing
 

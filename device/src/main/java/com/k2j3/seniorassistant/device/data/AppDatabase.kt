@@ -25,7 +25,16 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         private const val NAME = "senior_assistant.db"
 
-        fun create(context: Context): AppDatabase =
-            Room.databaseBuilder(context, AppDatabase::class.java, NAME).build()
+        @Volatile
+        private var instance: AppDatabase? = null
+
+        fun getInstance(context: Context): AppDatabase =
+            instance ?: synchronized(this) {
+                instance ?: Room.databaseBuilder(
+                    context.applicationContext,
+                    AppDatabase::class.java,
+                    NAME,
+                ).build().also { instance = it }
+            }
     }
 }

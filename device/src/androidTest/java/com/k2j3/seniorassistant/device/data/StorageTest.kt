@@ -136,6 +136,9 @@ class StorageTest {
         val dayBeforeId = schedules.getPendingReminders()
             .single { it.reminder.remindBefore == dayBefore }.reminder.id
         assertTrue(schedules.markNotified(dayBeforeId))
+        assertNull(schedules.getPendingReminder(dayBeforeId))
+        val pendingOfSchedule = schedules.getPendingReminders(id).map { it.reminder.remindBefore }
+        assertEquals(listOf(hourBefore), pendingOfSchedule)
 
         val moved = checkup.copy(id = id, place = "○○내과 3층")
         schedules.updateSchedule(moved, listOf(dayBefore, hourBefore))

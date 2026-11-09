@@ -66,6 +66,14 @@ interface ScheduleDao {
     @Query("SELECT * FROM reminder WHERE notified = 0")
     suspend fun getPendingReminders(): List<ReminderWithSchedule>
 
+    @Transaction
+    @Query("SELECT * FROM reminder WHERE schedule_id = :scheduleId AND notified = 0")
+    suspend fun getPendingReminders(scheduleId: Long): List<ReminderWithSchedule>
+
+    @Transaction
+    @Query("SELECT * FROM reminder WHERE id = :id AND notified = 0")
+    suspend fun getPendingReminder(id: Long): ReminderWithSchedule?
+
     @Insert
     suspend fun insertReminders(reminders: List<Reminder>)
 
