@@ -19,6 +19,11 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            // QCS6490 board and the Apple Silicon emulator; keeps the other sherpa-onnx ABIs (~90 MB) out
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
@@ -57,6 +62,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.room.runtime)
     ksp(libs.androidx.room.compiler)
+    // STT (SenseVoice), VAD (Silero), TTS (VITS) on the CPU. Not on Maven; the AAR is the official
+    // GitHub release asset: k2-fsa/sherpa-onnx v2.0.1, sha256 a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7
+    implementation(files("libs/sherpa-onnx-2.0.1.aar"))
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
