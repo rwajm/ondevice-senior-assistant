@@ -7,3 +7,13 @@ fun FloatArray.toPcm16(): ShortArray = ShortArray(size) { i ->
 
 /** 16-bit → -1..1 float (sherpa-onnx 입력) */
 fun ShortArray.toFloats(count: Int = size): FloatArray = FloatArray(count) { i -> this[i] / 32768f }
+
+/** WAV 소리 → -1..1 float mono. 채널이 여럿이면 평균한다 */
+fun Pcm16.toMonoFloats(): FloatArray = FloatArray(frames) { f ->
+    var sum = 0
+    for (c in 0 until channels) {
+        val at = (f * channels + c) * 2
+        sum += (data[at].toInt() and 0xFF) or (data[at + 1].toInt() shl 8)
+    }
+    sum / channels / 32768f
+}

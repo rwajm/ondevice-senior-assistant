@@ -21,4 +21,18 @@ class SamplesTest {
         val floats = shortArrayOf(0, 16384, Short.MIN_VALUE, 99).toFloats(count = 3)
         assertArrayEquals(floatArrayOf(0f, 0.5f, -1f), floats, 0f)
     }
+
+    @Test
+    fun wavBecomesTheSameFloatsItWasMadeFrom() {
+        val samples = shortArrayOf(0, 16384, -16384, Short.MIN_VALUE, 1)
+        val pcm = Wav.decode(Wav.encode(samples, 16_000))!!
+        assertArrayEquals(samples.toFloats(), pcm.toMonoFloats(), 0f)
+    }
+
+    @Test
+    fun stereoIsAveragedToMono() {
+        // frame 1: (16384, -16384) → 0, frame 2: (16384, 16384) → 0.5
+        val data = byteArrayOf(0x00, 0x40, 0x00, 0xC0.toByte(), 0x00, 0x40, 0x00, 0x40)
+        assertArrayEquals(floatArrayOf(0f, 0.5f), Pcm16(16_000, 2, data).toMonoFloats(), 0f)
+    }
 }

@@ -16,7 +16,8 @@ import java.io.File
  * ```
  * models/
  *   vad/silero_vad.onnx                          Silero VAD
- *   stt/model.int8.onnx, tokens.txt              SenseVoice (sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09)
+ *   stt/model.int8.onnx, tokens.txt              SenseVoice (sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17)
+ *                                                2025-09-09 판은 한국어를 광둥어로 알아들어서 쓰지 않는다
  *   tts/ko_KO-kss_low.onnx, tokens.txt,          VITS 한국어 (vits-mimic3-ko_KO-kss_low)
  *       espeak-ng-data/
  * ```
