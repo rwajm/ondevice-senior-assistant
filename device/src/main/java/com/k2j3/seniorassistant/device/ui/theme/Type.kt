@@ -1,34 +1,24 @@
 package com.k2j3.seniorassistant.device.ui.theme
 
-import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 
-// Set of Material typography styles to start with
-val Typography = Typography(
-    bodyLarge = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Normal,
-        fontSize = 16.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.5.sp
-    )
-    /* Other default text styles to override
-    titleLarge = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Normal,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
-        letterSpacing = 0.sp
-    ),
-    labelSmall = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Medium,
-        fontSize = 11.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.5.sp
-    )
-    */
-)
+/**
+ * 글자 크기 / 굵기. 시연 파일의 px 값을 그대로 sp로 옮겼다.
+ */
+object AppType {
+    private fun style(size: TextUnit, weight: FontWeight, spacing: TextUnit = 0.sp) =
+        TextStyle(fontFamily = AppFont, fontSize = size, fontWeight = weight, letterSpacing = spacing, color = AppColor.Text)
+
+    val ScreenTitle = style(40.sp, FontWeight.ExtraBold, (-0.5).sp)   // 위쪽 제목줄
+    val TileTitle = style(36.sp, FontWeight.ExtraBold)                // 메인 버튼 제목
+    val Body = style(30.sp, FontWeight.Bold)                          // 목록, 입력 칸, 대화
+    val BodySmall = style(28.sp, FontWeight.Bold)                     // 알약 버튼 글자
+    val Caption = style(26.sp, FontWeight.Medium)                     // 버튼 아래 설명
+    val Hint = style(24.sp, FontWeight.Medium)                        // 예시, 작은 안내
+
+    val LineHeight = 1.3.em
+}
