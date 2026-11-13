@@ -46,16 +46,17 @@ fun AppNavDisplay(modifier: Modifier = Modifier) {
     val go: (NavKey) -> Unit = { key -> if (backStack.lastOrNull() != key) backStack.add(key) }
     val activity = LocalActivity.current
 
-    val server = (LocalContext.current.applicationContext as SeniorAssistantApp).server
+    val app = LocalContext.current.applicationContext as SeniorAssistantApp
+    val server = app.server
     val home = viewModel { HomeViewModel(server.settings) }
     val todo = viewModel { TodoViewModel(server.schedules) }
     val calendar = viewModel { CalendarViewModel(server.schedules) }
     val form = viewModel { ScheduleFormViewModel(server.schedules) }
-    val voice = viewModel { VoiceViewModel(server) }
+    val voice = viewModel { VoiceViewModel(server, app.player) }
     val homeState by home.uiState.collectAsState()
     val documents = viewModel { DocumentViewModel(server) }
-    val settings = viewModel { SettingsViewModel(server) }
-    val notices = viewModel { NoticeViewModel(server) }
+    val settings = viewModel { SettingsViewModel(server, app.player) }
+    val notices = viewModel { NoticeViewModel(server, app.player) }
 
     val openNotices by notices.notices.collectAsState()
 

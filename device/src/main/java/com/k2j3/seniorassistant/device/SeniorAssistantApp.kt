@@ -7,6 +7,7 @@ import com.k2j3.seniorassistant.device.ai.llm.FakeLlmModule
 import com.k2j3.seniorassistant.device.ai.queue.InferenceQueue
 import com.k2j3.seniorassistant.device.ai.stt.FakeSttModule
 import com.k2j3.seniorassistant.device.ai.tts.FakeTtsModule
+import com.k2j3.seniorassistant.device.audio.AudioPlayer
 import com.k2j3.seniorassistant.device.server.BoardApiServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +24,8 @@ class SeniorAssistantApp : Application() {
             DocumentAnalyzer(FakeExternalAiClient()),
         )
     }
+
+    val player: AudioPlayer by lazy { AudioPlayer(this) } // one speaker for the whole app
 
     override fun onCreate() {
         super.onCreate()
