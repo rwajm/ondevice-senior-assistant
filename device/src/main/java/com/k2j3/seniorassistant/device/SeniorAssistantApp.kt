@@ -11,7 +11,11 @@ import com.k2j3.seniorassistant.device.ai.stt.FakeSttModule
 import com.k2j3.seniorassistant.device.ai.tts.FakeTtsModule
 import com.k2j3.seniorassistant.device.ai.tts.SherpaTtsModule
 import com.k2j3.seniorassistant.device.ai.tts.TtsModule
+import com.k2j3.seniorassistant.device.ai.vad.SileroSpeechDetector
 import com.k2j3.seniorassistant.device.audio.AudioPlayer
+import com.k2j3.seniorassistant.device.audio.MicVoiceRecorder
+import com.k2j3.seniorassistant.device.audio.SilentVoiceRecorder
+import com.k2j3.seniorassistant.device.audio.VoiceRecorder
 import com.k2j3.seniorassistant.device.server.BoardApiServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +34,11 @@ class SeniorAssistantApp : Application() {
     }
 
     val player: AudioPlayer by lazy { AudioPlayer(this) } // one speaker for the whole app
+
+    val recorder: VoiceRecorder by lazy { // one microphone for the whole app
+        if (models.missing(models.vadFiles).isEmpty()) MicVoiceRecorder(this) { SileroSpeechDetector(models.vadModel) }
+        else SilentVoiceRecorder()
+    }
 
     val models: ModelFiles by lazy { ModelFiles.onDevice(this) } // pushed with adb, see ModelFiles
 

@@ -52,7 +52,7 @@ fun AppNavDisplay(modifier: Modifier = Modifier) {
     val todo = viewModel { TodoViewModel(server.schedules) }
     val calendar = viewModel { CalendarViewModel(server.schedules) }
     val form = viewModel { ScheduleFormViewModel(server.schedules) }
-    val voice = viewModel { VoiceViewModel(server, app.player) }
+    val voice = viewModel { VoiceViewModel(server, app.player, app.recorder) }
     val homeState by home.uiState.collectAsState()
     val documents = viewModel { DocumentViewModel(server) }
     val settings = viewModel { SettingsViewModel(server, app.player) }

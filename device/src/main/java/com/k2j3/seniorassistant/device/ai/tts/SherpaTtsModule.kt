@@ -8,6 +8,7 @@ import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import com.k2j3.seniorassistant.device.ai.ModelFiles
 import com.k2j3.seniorassistant.device.audio.Wav
+import com.k2j3.seniorassistant.device.audio.toPcm16
 import java.io.FileNotFoundException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -53,15 +54,10 @@ class SherpaTtsModule(
             check(audio.samples.isNotEmpty()) { "TTS produced no audio for: $text" }
             val audioMillis = audio.samples.size * 1000L / audio.sampleRate
             Log.i(TAG, "${SystemClock.elapsedRealtime() - start} ms for $audioMillis ms of speech")
-            Wav.encode(toPcm16(audio.samples), audio.sampleRate)
+            Wav.encode(audio.samples.toPcm16(), audio.sampleRate)
         }
 
-    internal companion object {
-        private const val TAG = "SherpaTts"
-
-        /** -1..1 float → 16-bit. 범위를 넘는 값은 잘라서 '찢어지는' 소리를 막는다 */
-        fun toPcm16(samples: FloatArray) = ShortArray(samples.size) { i ->
-            (samples[i].coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort()
-        }
+    private companion object {
+        const val TAG = "SherpaTts"
     }
 }

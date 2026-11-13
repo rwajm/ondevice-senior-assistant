@@ -3,6 +3,7 @@ package com.k2j3.seniorassistant.device.ui.voice
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.k2j3.seniorassistant.device.audio.AudioPlayer
+import com.k2j3.seniorassistant.device.audio.VoiceRecorder
 import com.k2j3.seniorassistant.device.data.schedule.Schedule
 import com.k2j3.seniorassistant.device.server.BoardApiServer
 import com.k2j3.seniorassistant.device.server.VoiceAnswer
@@ -53,13 +54,13 @@ data class VoiceUiState(
 class VoiceViewModel(
     private val server: BoardApiServer,
     private val player: AudioPlayer,
+    private val recorder: VoiceRecorder,
     /** 소리를 만들지 못했을 때, 도우미가 말한 뒤 다시 듣기 전까지 기다리는 시간 (소리가 있으면 다 읽을 때까지) */
     private val speakHoldMillis: Long = 2_000,
 ) : ViewModel() {
 
     private var mode = VoiceMode.ASK
     private var editing: Schedule? = null
-    private val recorder = VoiceRecorder()
     private var job: Job? = null
 
     private val state = MutableStateFlow(VoiceUiState(mode, listOf(prompt()), VoiceStatus.LISTEN))
