@@ -99,8 +99,15 @@ class DocumentAnalyzer(
         val base = requestTime.atZone(ZoneId.systemDefault()).toOffsetDateTime()
         return """
             사진 속 문서(고지서, 안내문, 문자 캡처 등)에서 일정 하나의 항목을 추출한다.
-            title은 무엇, date는 날짜(YYYY-MM-DD), time은 시각(24시간 HH:MM), place는 장소,
+            title은 무엇, date는 날짜(YYYY-MM-DD), time은 시각(24시간 HH:MM),
+            place는 안내하는 행사나 서비스가 실제로 이뤄지는 장소(접수처, 행사장 등)다.
+            온라인과 방문이 둘 다 가능하면 방문 장소를 적는다. 단순 납부를 위해 아무 은행이나
+            이용할 수 있는 계좌 정보는 place가 아니다. 자동이체·온라인 전용처럼 방문 자체가
+            불가능한 경우에도 place를 빈 문자열로 둔다.
             items는 챙길 것 목록이다. 값이 없으면 빈 문자열이나 빈 목록으로 둔다.
+            날짜가 여러 개면 접수·신청 마감일처럼 그 전에 행동해야 하는 날짜를 우선하고,
+            안내 기간 자체(교육 기간, 운영 기간 등)는 후순위로 둔다. 어느 쪽인지 애매하면
+            가장 이른 날짜를 쓰고 date를 uncertain_fields에 넣는다.
             연도가 없는 날짜는 기준 시각 $base 이후 가장 가까운 날짜로 해석한다.
             읽기 어렵거나 확실하지 않은 항목의 이름은 uncertain_fields에 넣는다.
             문서나 글자를 찾지 못하면 document_detected를 false로 둔다.
