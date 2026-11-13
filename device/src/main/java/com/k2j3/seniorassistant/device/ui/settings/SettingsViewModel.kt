@@ -3,57 +3,49 @@ package com.k2j3.seniorassistant.device.ui.settings
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.k2j3.seniorassistant.device.data.settings.FontSize
 import com.k2j3.seniorassistant.device.data.settings.Settings
-import com.k2j3.seniorassistant.device.data.settings.SpeechRate
 import com.k2j3.seniorassistant.device.server.BoardApiServer
-import java.time.Duration
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+data class SettingsUiState(
+    val settings: Settings = Settings(),
+    val previewing: Boolean = false,
+)
+
+/** 설정 화면 (FR-07). 고른 값을 저장만 하고, 화면에 적용하는 기능은 아직 없다 */
 class SettingsViewModel(private val server: BoardApiServer) : ViewModel() {
-    fun changeFontSize() = change { it.copy(fontSize = it.fontSize.next()) }
 
-    fun changeSpeechRate() = change { it.copy(speechRate = it.speechRate.next()) }
+    private val state = MutableStateFlow(SettingsUiState())
+    val uiState: StateFlow<SettingsUiState> = state.asStateFlow()
 
-    fun changeRemindBefore() = change {
-        val next = remindPresets[(remindPresets.indexOf(it.remindBefore) + 1) % remindPresets.size]
-        it.copy(remindBefore = next)
+    fun refresh() {
+        viewModelScope.launch { state.update { it.copy(settings = server.settings.getSettings()) } }
     }
 
-    fun changeUserName() = change { it.copy(userName = if (it.userName.isEmpty()) "김OO" else "") }
-
-    fun changeVoiceNotification() = change {
-        it.copy(voiceNotificationEnabled = !it.voiceNotificationEnabled)
-    }
-
-    fun changeExternalConsent() = change {
-        it.copy(externalTransferConsent = !it.externalTransferConsent)
-    }
-
-    fun previewSpeech() {
-        viewModelScope.launch {
-            val rate = server.settings.getSettings().speechRate
-            Log.d(TAG, "preview $rate: ${server.settings.previewSpeech(rate)?.size ?: 0} bytes")
-        }
-    }
-
-    private fun change(transform: (Settings) -> Settings) {
+    fun change(transform: (Settings) -> Settings) {
         viewModelScope.launch {
             val changed = transform(server.settings.getSettings())
-            Log.d(TAG, "saved ${server.settings.updateSettings(changed)}: $changed")
+            server.settings.updateSettings(changed)
+            state.update { it.copy(settings = changed) }
         }
     }
 
-    private fun FontSize.next() = FontSize.entries[(ordinal + 1) % FontSize.entries.size]
-
-    private fun SpeechRate.next() = SpeechRate.entries[(ordinal + 1) % SpeechRate.entries.size]
+    /** 말 빠르기 '들어보기' (소리 재생은 아직 없음) */
+    fun preview() {
+        if (state.value.previewing) return
+        viewModelScope.launch {
+            state.update { it.copy(previewing = true) }
+            val audio = server.settings.previewSpeech(state.value.settings.speechRate)
+            Log.d(TAG, "preview ${audio?.size ?: 0} bytes")
+            state.update { it.copy(previewing = false) }
+        }
+    }
 
     private companion object {
         const val TAG = "SettingsViewModel"
-        val remindPresets = listOf(
-            listOf(Duration.ofDays(1), Duration.ofHours(1)),
-            listOf(Duration.ZERO),
-            listOf(Duration.ofDays(1), Duration.ofHours(1), Duration.ZERO),
-        )
     }
 }
