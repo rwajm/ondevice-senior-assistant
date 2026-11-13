@@ -9,6 +9,8 @@ import com.k2j3.seniorassistant.device.ai.llm.FakeLlmModule
 import com.k2j3.seniorassistant.device.ai.queue.InferenceQueue
 import com.k2j3.seniorassistant.device.ai.stt.FakeSttModule
 import com.k2j3.seniorassistant.device.ai.tts.FakeTtsModule
+import com.k2j3.seniorassistant.device.ai.tts.SherpaTtsModule
+import com.k2j3.seniorassistant.device.ai.tts.TtsModule
 import com.k2j3.seniorassistant.device.audio.AudioPlayer
 import com.k2j3.seniorassistant.device.server.BoardApiServer
 import kotlinx.coroutines.CoroutineScope
@@ -19,10 +21,10 @@ import kotlinx.coroutines.launch
 class SeniorAssistantApp : Application() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    val server: BoardApiServer by lazy { // fakes until the model bundle and the OpenAI client
+    val server: BoardApiServer by lazy { // STT, LLM and the OpenAI client are still fakes
         BoardApiServer.create(
             this,
-            InferenceQueue(FakeSttModule(), FakeLlmModule(), FakeTtsModule()),
+            InferenceQueue(FakeSttModule(), FakeLlmModule(), tts()),
             DocumentAnalyzer(FakeExternalAiClient()),
         )
     }
@@ -36,6 +38,10 @@ class SeniorAssistantApp : Application() {
         scope.launch { server.start(scope) }
         scope.launch { logModelFiles() }
     }
+
+    // 모델을 안 올린 기기(에뮬레이터 등)에서는 '삐' 소리로 대신해 나머지 기능을 계속 쓸 수 있게 한다
+    private fun tts(): TtsModule =
+        if (models.missing(models.ttsFiles).isEmpty()) SherpaTtsModule(models) else FakeTtsModule()
 
     private fun logModelFiles() {
         val missing = models.missing()

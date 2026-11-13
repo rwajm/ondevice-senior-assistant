@@ -63,8 +63,9 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     ksp(libs.androidx.room.compiler)
     // STT (SenseVoice), VAD (Silero), TTS (VITS) on the CPU. Not on Maven; the AAR is the official
-    // GitHub release asset: k2-fsa/sherpa-onnx v2.0.1, sha256 a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7
-    implementation(files("libs/sherpa-onnx-2.0.1.aar"))
+    // GitHub release asset: k2-fsa/sherpa-onnx v1.13.8, sha256 633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96
+    // Stay on 1.x: 2.0 removed espeak-ng, which the Korean VITS model needs for pronunciation.
+    implementation(files("libs/sherpa-onnx-1.13.8.aar"))
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
