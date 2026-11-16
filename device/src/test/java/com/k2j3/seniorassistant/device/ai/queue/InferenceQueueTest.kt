@@ -7,6 +7,7 @@ import com.k2j3.seniorassistant.device.ai.llm.QueryType
 import com.k2j3.seniorassistant.device.ai.stt.FakeSttModule
 import com.k2j3.seniorassistant.device.ai.stt.SttModule
 import com.k2j3.seniorassistant.device.ai.tts.FakeTtsModule
+import com.k2j3.seniorassistant.device.audio.Wav
 import com.k2j3.seniorassistant.device.ai.tts.TtsModule
 import java.time.LocalDateTime
 import kotlinx.coroutines.delay
@@ -119,6 +120,9 @@ class InferenceQueueTest {
         val wav = (queue.synthesize("안녕하세요", 1f) as InferenceResult.Success).value
         assertEquals("RIFF", String(wav, 0, 4))
         assertEquals("WAVE", String(wav, 8, 4))
-        assertEquals(44 + 3_200, wav.size)
+        val pcm = Wav.decode(wav)!! // AudioPlayer가 읽는 형식: 16 kHz mono 16-bit
+        assertEquals(16_000, pcm.sampleRate)
+        assertEquals(1, pcm.channels)
+        assertEquals(250L, pcm.durationMillis)
     }
 }

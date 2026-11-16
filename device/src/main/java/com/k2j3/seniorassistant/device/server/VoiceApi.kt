@@ -69,6 +69,9 @@ class VoiceApi internal constructor(
         }
     }
 
+    // the board's own words (confirm prompts, done) in the user's speech rate; null when it cannot be made
+    suspend fun speak(text: String): ByteArray? = speaker.speak(text)
+
     private suspend fun answer(
         transcript: String,
         query: FunctionCall.QuerySchedule,

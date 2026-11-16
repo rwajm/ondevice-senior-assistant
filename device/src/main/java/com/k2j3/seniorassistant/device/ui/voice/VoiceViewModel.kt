@@ -2,6 +2,8 @@ package com.k2j3.seniorassistant.device.ui.voice
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.k2j3.seniorassistant.device.audio.AudioPlayer
+import com.k2j3.seniorassistant.device.audio.VoiceRecorder
 import com.k2j3.seniorassistant.device.data.schedule.Schedule
 import com.k2j3.seniorassistant.device.server.BoardApiServer
 import com.k2j3.seniorassistant.device.server.VoiceAnswer
@@ -51,13 +53,14 @@ data class VoiceUiState(
  */
 class VoiceViewModel(
     private val server: BoardApiServer,
-    /** 도우미가 말한 뒤 다시 듣기 전까지 기다리는 시간 (실제로는 읽어 주기가 끝날 때까지) */
+    private val player: AudioPlayer,
+    private val recorder: VoiceRecorder,
+    /** 소리를 만들지 못했을 때, 도우미가 말한 뒤 다시 듣기 전까지 기다리는 시간 (소리가 있으면 다 읽을 때까지) */
     private val speakHoldMillis: Long = 2_000,
 ) : ViewModel() {
 
     private var mode = VoiceMode.ASK
     private var editing: Schedule? = null
-    private val recorder = VoiceRecorder()
     private var job: Job? = null
 
     private val state = MutableStateFlow(VoiceUiState(mode, listOf(prompt()), VoiceStatus.LISTEN))
@@ -70,6 +73,7 @@ class VoiceViewModel(
         state.value = VoiceUiState(mode, listOf(prompt()), VoiceStatus.LISTEN)
         job = viewModelScope.launch {
             editing = editingId?.let { server.schedules.getSchedule(it)?.schedule }
+            sayText(prompt().text, holdIfSilent = false) // 첫마디
             converse()
         }
     }
@@ -90,19 +94,20 @@ class VoiceViewModel(
             when (val answer = think { askUntilReady(audio) }) {
                 is VoiceAnswer.Answered -> {
                     add(VoiceMessage.Me(answer.transcript), VoiceMessage.Bot(answer.text))
+                    say(answer.audio, holdIfSilent = false)
                     return finish()
                 }
                 is VoiceAnswer.AskAgain -> {
                     if (answer.transcript.isNotBlank()) add(VoiceMessage.Me(answer.transcript))
-                    add(VoiceMessage.Bot(answer.text)); delay(speakHoldMillis)
+                    add(VoiceMessage.Bot(answer.text)); say(answer.audio)
                 }
                 VoiceAnswer.NotReady -> {
-                    add(VoiceMessage.Bot(answer.text, isError = true)); delay(speakHoldMillis)
+                    add(VoiceMessage.Bot(answer.text, isError = true)); say(answer.audio)
                 }
                 is VoiceAnswer.Draft -> {
                     val title = if (editing != null) "이렇게 바꿀까요?" else "이렇게 넣을까요?"
                     add(VoiceMessage.Me(answer.transcript), VoiceMessage.Draft(title, answer.draft, editing))
-                    delay(speakHoldMillis)
+                    say(answer.audio)
                     if (confirm(answer.draft)) return finish()
                 }
             }
@@ -118,16 +123,18 @@ class VoiceViewModel(
             when {
                 YES.any { it in heard } && NO.none { it in heard } -> {
                     save(draft)
-                    add(VoiceMessage.Bot(doneText(draft)))
+                    val done = doneText(draft)
+                    add(VoiceMessage.Bot(done))
+                    sayText(done, holdIfSilent = false) // savedDate가 바뀌면 화면을 떠나서 읽기가 끊기므로 먼저 읽는다
                     state.update { it.copy(savedDate = draft.date) }
                     return true
                 }
                 NO.any { it in heard } -> {
-                    add(VoiceMessage.Bot("알겠어요. 다시 말씀해 주세요.")); delay(speakHoldMillis)
+                    botSays("알겠어요. 다시 말씀해 주세요.")
                     return false
                 }
                 else -> {
-                    add(VoiceMessage.Bot("맞으면 \"응\", 아니면 \"아니\"라고 말씀해 주세요.")); delay(speakHoldMillis)
+                    botSays("맞으면 \"응\", 아니면 \"아니\"라고 말씀해 주세요.")
                 }
             }
         }
@@ -154,6 +161,24 @@ class VoiceViewModel(
     private fun doneText(d: Schedule): String {
         val whenText = "${d.date.koreanDate()} ${d.time?.koreanTime() ?: ""}".trim()
         return if (editing == null) "넣었어요. $whenText ${d.title}, 때가 되면 미리 알려 드릴게요." else "바꿨어요. $whenText ${d.title}이에요."
+    }
+
+    /**
+     * 도우미의 말을 스피커로 다 읽을 때까지 기다린다.
+     * 소리가 없거나 읽지 못하면, holdIfSilent일 때 글을 읽을 시간만큼 기다린다.
+     */
+    private suspend fun say(audio: ByteArray?, holdIfSilent: Boolean = true) {
+        if (audio != null && player.play(audio)) delay(AFTER_SPEAK_MILLIS)
+        else if (holdIfSilent) delay(speakHoldMillis)
+    }
+
+    /** 대답이 아닌 도우미 자신의 말 (첫마디, 확인, 저장했어요) */
+    private suspend fun sayText(text: String, holdIfSilent: Boolean = true) =
+        say(server.voice.speak(text), holdIfSilent)
+
+    private suspend fun botSays(text: String) {
+        add(VoiceMessage.Bot(text))
+        sayText(text)
     }
 
     private suspend fun listen(): ByteArray {
@@ -187,6 +212,8 @@ class VoiceViewModel(
     }
 
     private companion object {
+        /** 다 읽은 뒤 잠깐 쉬고 듣는다: 스피커 끝소리(울림)가 녹음에 들어가지 않게 */
+        const val AFTER_SPEAK_MILLIS = 300L
         val YES = listOf("응", "네", "예", "그래", "맞아", "좋아")
         val NO = listOf("아니", "아냐", "싫어", "틀려")
     }
