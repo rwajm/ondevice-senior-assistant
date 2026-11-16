@@ -16,6 +16,11 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.SeniorAssistant">
+        <!-- FastRPC to the NPU (DSP) for the on-device LLM; boards without it fall back to the fake LLM -->
+        <uses-native-library
+            android:name="libcdsprpc.so"
+            android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:screenOrientation="sensorLandscape"

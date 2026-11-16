@@ -38,3 +38,6 @@ google-services.json
 # AI model files are deployed to the board via adb, not committed
 *.onnx
 
+# Qualcomm QNN/Genie runtime libraries from the LLM bundle (proprietary, about 23 MB), copied in by the setup script
+device/src/main/jniLibs/
+

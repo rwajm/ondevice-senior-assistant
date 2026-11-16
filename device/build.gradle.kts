@@ -26,6 +26,24 @@ android {
         }
     }
 
+    // the JNI bridge to Qualcomm Genie (on-device LLM on the NPU), see src/main/cpp/genie_jni.c
+    ndkVersion = "27.0.12077973"
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+    packaging {
+        jniLibs {
+            // installed as real files: the NPU's DSP loads libQnnHtpV68Skel.so from the app's lib folder
+            useLegacyPackaging = true
+            // the Qualcomm runtime (src/main/jniLibs, copied from the LLM bundle, not in git) goes in as shipped;
+            // the skel is a Hexagon DSP binary that the Android strip tool must not touch
+            keepDebugSymbols += listOf("**/libQnn*.so", "**/libGenie.so", "**/libc++_shared.so")
+        }
+    }
+
     buildTypes {
         release {
             optimization {
