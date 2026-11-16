@@ -21,6 +21,11 @@ class SileroSpeechDetector(
 ) : SpeechDetector {
     override val windowSize = WINDOW_SIZE
 
+    // sherpa-onnx는 말을 알아차린 때보다 창 2개 + 최소 말 길이만큼 앞을 말의 시작으로 본다
+    override val onsetDelaySamples = 2 * WINDOW_SIZE + (minSpeechSeconds * SAMPLE_RATE).toInt()
+
+    override val endDelaySamples = (minSilenceSeconds * SAMPLE_RATE).toInt()
+
     private val vad = Vad(
         config = VadModelConfig(
             sileroVadModelConfig = SileroVadModelConfig(
@@ -40,16 +45,14 @@ class SileroSpeechDetector(
 
     override fun isSpeaking() = vad.isSpeechDetected()
 
-    override fun takeSegments(): List<FloatArray> {
-        val segments = mutableListOf<FloatArray>()
+    override fun popEnded(): Boolean {
+        var ended = false
         while (!vad.empty()) {
-            segments += vad.front().samples
-            vad.pop()
+            vad.pop() // 소리는 UtteranceCollector가 원본에서 자른다 (VAD 구간은 약한 첫소리를 버린다)
+            ended = true
         }
-        return segments
+        return ended
     }
-
-    override fun flush() = vad.flush()
 
     override fun reset() = vad.reset()
 
