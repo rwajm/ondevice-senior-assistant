@@ -6,6 +6,9 @@ import com.k2j3.seniorassistant.device.ai.ModelFiles
 import com.k2j3.seniorassistant.device.ai.document.DocumentAnalyzer
 import com.k2j3.seniorassistant.device.ai.document.FakeExternalAiClient
 import com.k2j3.seniorassistant.device.ai.llm.FakeLlmModule
+import com.k2j3.seniorassistant.device.ai.llm.GenieDialog
+import com.k2j3.seniorassistant.device.ai.llm.GenieLlmModule
+import com.k2j3.seniorassistant.device.ai.llm.LlmModule
 import com.k2j3.seniorassistant.device.ai.queue.InferenceQueue
 import com.k2j3.seniorassistant.device.ai.stt.FakeSttModule
 import com.k2j3.seniorassistant.device.ai.stt.SherpaSttModule
@@ -27,10 +30,10 @@ import kotlinx.coroutines.launch
 class SeniorAssistantApp : Application() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    val server: BoardApiServer by lazy { // the LLM and the OpenAI client are still fakes
+    val server: BoardApiServer by lazy { // the OpenAI client is still a fake
         BoardApiServer.create(
             this,
-            InferenceQueue(stt(), FakeLlmModule(), tts()),
+            InferenceQueue(stt(), llm(), tts()),
             DocumentAnalyzer(FakeExternalAiClient()),
         )
     }
@@ -56,6 +59,15 @@ class SeniorAssistantApp : Application() {
 
     private fun tts(): TtsModule =
         if (models.missing(models.ttsFiles).isEmpty()) SherpaTtsModule(models) else FakeTtsModule()
+
+    // Qualcomm 라이브러리(jniLibs)와 LLM 번들(models/llm)이 둘 다 있어야 NPU의 실제 모델을 쓴다
+    private fun llm(): LlmModule {
+        val missing = models.missing(models.llmFiles)
+        val unavailable = GenieDialog.unavailableReason
+        if (missing.isEmpty() && unavailable == null) return GenieLlmModule(models, applicationInfo.nativeLibraryDir)
+        Log.w(TAG, "fake LLM: " + (unavailable?.let { "Genie not available ($it)" } ?: "missing $missing"))
+        return FakeLlmModule()
+    }
 
     private fun logModelFiles() {
         val missing = models.missing()

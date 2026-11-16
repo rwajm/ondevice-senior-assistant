@@ -22,6 +22,8 @@ class ModelFilesTest {
                 "vad/silero_vad.onnx",
                 "stt/model.int8.onnx", "stt/tokens.txt",
                 "tts/ko_KO-kss_low.onnx", "tts/tokens.txt", "tts/espeak-ng-data",
+                "llm/genie_config_npu.json", "llm/runtime_prompt_template.txt", "llm/tokenizer.json",
+                "llm/llama32_hf_v68.bin", "llm/htp_backend_ext_config.json",
             ),
             files.missing(),
         )
