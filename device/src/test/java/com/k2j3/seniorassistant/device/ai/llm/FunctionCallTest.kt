@@ -1,19 +1,18 @@
 package com.k2j3.seniorassistant.device.ai.llm
 
-import java.time.LocalDate
-import java.time.LocalTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
+// outputs are the v3 model's answers on the QCS6490 board (Genie leaves out <maum_end>)
 class FunctionCallTest {
     @Test
     fun queryWithConditionsIsParsed() {
         val output =
-            """<maum_0>{"date": "2026-10-28", "time": "17:00", "place": "", "type": 1}<maum_end>"""
+            """<maum_0>{"date_expression":"다음 주 일요일","time_expression":"18:25","place":"","type":1}"""
         val expected = FunctionCall.QuerySchedule(
-            date = LocalDate.of(2026, 10, 28),
-            time = LocalTime.of(17, 0),
+            dateExpression = "다음 주 일요일",
+            timeExpression = "18:25",
             place = "",
             type = QueryType.CONDITION,
         )
@@ -21,42 +20,67 @@ class FunctionCallTest {
     }
 
     @Test
-    fun setWithPlaceAndTitleIsParsed() {
-        val output = """
-            <maum_1>{"date": "2026-10-13", "time": "11:00", "place": "치과",
-            "title": "치과 가기", "type": 1}<maum_end>
-        """.trimIndent()
+    fun queryByPlaceIsParsed() {
+        val output =
+            """<maum_0>{"date_expression":"","time_expression":"","place":"성당","type":3}"""
+        val call = parseFunctionCall(output) as FunctionCall.QuerySchedule
+        assertEquals("성당", call.place)
+        assertEquals(QueryType.NEXT, call.type)
+    }
+
+    @Test
+    fun setKeepsThePlaceInTheTitle() {
+        val output = """<maum_1>{"date_expression":"내일","time_expression":"오후 세 시",""" +
+            """"title":"복지관 노래 교실","type":1}"""
         val expected = FunctionCall.SetSchedule(
-            date = LocalDate.of(2026, 10, 13),
-            time = LocalTime.of(11, 0),
-            place = "치과",
-            title = "치과 가기",
+            dateExpression = "내일",
+            timeExpression = "오후 세 시",
+            title = "복지관 노래 교실",
             type = SetType.CALENDAR,
         )
         assertEquals(expected, parseFunctionCall(output))
     }
 
     @Test
+    fun alarmWithElapsedTimeIsParsed() {
+        val output = """<maum_1>{"date_expression":"","time_expression":"삼십 분 있다가",""" +
+            """"title":"가스불 살피기","type":2}"""
+        val call = parseFunctionCall(output) as FunctionCall.SetSchedule
+        assertEquals(SetType.ALARM, call.type)
+        assertEquals("", call.dateExpression)
+        assertEquals("삼십 분 있다가", call.timeExpression)
+    }
+
+    @Test
+    fun theEndTokenIsOptional() {
+        val bare = """<maum_0>{"date_expression":"","time_expression":"","place":"","type":3}"""
+        assertEquals(parseFunctionCall(bare), parseFunctionCall("$bare<maum_end>"))
+        assertEquals(parseFunctionCall(bare), parseFunctionCall("  $bare <maum_end>\n"))
+    }
+
+    @Test
     fun unclearTypeKeepsTheExtractedValues() {
-        val output = """
-            <maum_1>{"date": "", "time": "20:00", "place": "", "title": "약", "type": -1}<maum_end>
-        """.trimIndent()
+        val output = """<maum_1>{"date_expression":"내일","time_expression":"오후 열 시",""" +
+            """"title":"","type":-1}"""
         val call = parseFunctionCall(output) as FunctionCall.SetSchedule
         assertEquals(SetType.UNCLEAR, call.type)
-        assertEquals(LocalTime.of(20, 0), call.time)
-        assertNull(call.date)
+        assertEquals("내일", call.dateExpression)
+        assertEquals("오후 열 시", call.timeExpression)
     }
 
     @Test
     fun outputsOutsideTheFormatAreRejected() {
         val rejected = listOf(
+            "", // the broken v2 model stopped before any token
             "다음 일정은 내일입니다", // no function token
-            """<maum_0>{"date": "", "time": "", "place": "", "type": 3}""", // no end token
-            """<maum_2>{"date": "", "time": "", "place": "", "type": 1}<maum_end>""", // unknown
-            """<maum_0>{"date": "", "time": "", "type": 3}<maum_end>""", // missing field
-            """<maum_0>{"date": "", "time": "", "place": "", "type": 4}<maum_end>""", // bad type
-            """<maum_0>{"date": "10월 28일", "time": "", "place": "", "type": 1}<maum_end>""",
-            """<maum_1>{"date": "", "time": "", "place": "", "type": 1}<maum_end>""", // no title
+            """<maum_2>{"date_expression":"","time_expression":"","place":"","type":1}""", // unknown
+            """<maum_0>{"date_expression":"","time_expression":"","type":3}""", // missing field
+            """<maum_0>{"date_expression":"","time_expression":"","place":"","type":4}""", // bad type
+            """<maum_0>{"date_expression":"","time_expression":"","place":"","type":"삼"}""", // not a number
+            """<maum_1>{"date_expression":"","time_expression":"","place":"","type":1}""", // place, no title
+            """<maum_0>{"date": "", "time": "", "place": "", "type": 3}<maum_end>""", // the old format
+            """<maum_end>-<maum_end>-22T15:50:00-09:00""", // what the broken v2 model said
+            """<maum_0>{"date_expression":"","time_expression":"","place":"","type":3""", // cut off
         )
         rejected.forEach { assertNull(it, parseFunctionCall(it)) }
     }

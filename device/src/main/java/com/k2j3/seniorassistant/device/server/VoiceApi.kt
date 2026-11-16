@@ -78,10 +78,11 @@ class VoiceApi internal constructor(
         requestTime: LocalDateTime,
     ): VoiceAnswer {
         val place = query.place.ifBlank { null }
+        val time = timeOf(query)
         val found = when (query.type) {
-            QueryType.CONDITION -> query.date
-                ?.let { schedules.getSchedules(it, it, query.time, place) }
-                ?: upcoming(query.time, place, requestTime)
+            QueryType.CONDITION -> dateOf(query)
+                ?.let { schedules.getSchedules(it, it, time, place) }
+                ?: upcoming(time, place, requestTime)
             QueryType.RECENT -> schedules.getRecentSchedules(1, place)
             QueryType.NEXT -> schedules.getNextSchedules(requestTime, 1, place)
             QueryType.UNCLEAR -> return askAgain(transcript, Sentences.ASK_AGAIN)
@@ -112,28 +113,35 @@ class VoiceApi internal constructor(
             SetType.ALARM -> ScheduleKind.ALARM
             SetType.UNCLEAR -> return askAgain(transcript, Sentences.ASK_AGAIN) // never saved
         }
-        val draft = editing?.copy( // only the spoken fields change
+        val date = dateOf(set)
+        val time = timeOf(set)
+        val draft = editing?.copy( // only the spoken fields change; the place stays (the model puts it in the title)
             title = set.title.ifBlank { editing.title },
-            date = set.date ?: editing.date,
-            time = set.time ?: editing.time,
-            place = set.place.ifBlank { editing.place },
+            date = date ?: editing.date,
+            time = time ?: editing.time,
             kind = kind,
         ) ?: Schedule(
             title = set.title.ifBlank { return askAgain(transcript, Sentences.ASK_AGAIN) },
-            date = set.date ?: dayOf(set, requestTime),
-            time = set.time,
-            place = set.place,
+            date = date ?: dayOf(time, requestTime),
+            time = time,
             kind = kind,
         )
         val text = Sentences.draft(draft, requestTime.toLocalDate())
         return VoiceAnswer.Draft(transcript, draft, text, speaker.speak(text))
     }
 
-    private fun dayOf(set: FunctionCall.SetSchedule, requestTime: LocalDateTime): LocalDate {
+    private fun dayOf(time: LocalTime?, requestTime: LocalDateTime): LocalDate {
         val today = requestTime.toLocalDate()
-        val passed = set.time != null && set.time <= requestTime.toLocalTime()
+        val passed = time != null && time <= requestTime.toLocalTime()
         return if (passed) today.plusDays(1) else today // "8시에 알려줘" means the next 8 o'clock
     }
+
+    // 2단계(날짜·시간 표현 해석기)에서 채운다. 그 전까지는 날짜·시간 조건이 없는 것으로 처리한다
+    @Suppress("UNUSED_PARAMETER")
+    private fun dateOf(call: FunctionCall): LocalDate? = null
+
+    @Suppress("UNUSED_PARAMETER")
+    private fun timeOf(call: FunctionCall): LocalTime? = null
 
     private suspend fun askAgain(transcript: String, text: String) =
         VoiceAnswer.AskAgain(transcript, text, speaker.speak(text))

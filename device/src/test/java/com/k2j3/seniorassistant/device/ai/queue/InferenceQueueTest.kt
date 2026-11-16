@@ -104,7 +104,7 @@ class InferenceQueueTest {
     fun functionCallIsParsedOrRejected() = runTest {
         val queue = InferenceQueue(FakeSttModule(), FakeLlmModule(), FakeTtsModule())
         queue.load()
-        val next = FunctionCall.QuerySchedule(null, null, "", QueryType.NEXT)
+        val next = FunctionCall.QuerySchedule("", "", "", QueryType.NEXT)
         assertEquals(InferenceResult.Success(next), queue.inferFunctionCall("다음 일정", now))
 
         val chatty = InferenceQueue(FakeSttModule(), FakeLlmModule("내일 2시예요"), FakeTtsModule())

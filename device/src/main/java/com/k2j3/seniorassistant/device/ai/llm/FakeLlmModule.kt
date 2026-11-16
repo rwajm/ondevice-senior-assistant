@@ -8,7 +8,8 @@ class FakeLlmModule(private val output: String = NEXT_SCHEDULE) : LlmModule {
     override suspend fun generate(text: String, requestTime: LocalDateTime): String = output
 
     private companion object {
+        // the board model's answer to "다음 일정이 뭐야?"; Genie leaves out <maum_end>
         const val NEXT_SCHEDULE =
-            """<maum_0>{"date": "", "time": "", "place": "", "type": 3}<maum_end>"""
+            """<maum_0>{"date_expression":"","time_expression":"","place":"","type":3}"""
     }
 }
