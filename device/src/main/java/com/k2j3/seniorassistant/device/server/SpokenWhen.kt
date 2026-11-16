@@ -106,31 +106,36 @@ private fun parseTime(raw: String): ParsedTime {
         marker != null -> t.removePrefix(marker)
         else -> t
     }
-    val (hour, minute) = clock(body) ?: return ParsedTime.Unknown
-    return withMarker(marker, hour, minute)
+    val clock = clock(body) ?: return ParsedTime.Unknown
+    return withMarker(marker, clock)
 }
 
-private fun clock(body: String): Pair<Int, Int>? {
-    val (hour, minute) = COLON.matchEntire(body)?.let { it.groupValues[1].toInt() to it.groupValues[2].toInt() }
+/** twentyFourHour: "09:00", "02시 반"처럼 콜론이나 앞의 0으로 24시간제임을 보인 시각 */
+private data class Clock(val hour: Int, val minute: Int, val twentyFourHour: Boolean)
+
+private fun clock(body: String): Clock? {
+    val clock = COLON.matchEntire(body)?.let { Clock(it.groupValues[1].toInt(), it.groupValues[2].toInt(), true) }
         ?: HOUR.matchEntire(body)?.let { m ->
-            val hour = koreanNumber(m.groupValues[1]) ?: return null
+            val hourText = m.groupValues[1]
+            val hour = koreanNumber(hourText) ?: return null
             val minute = when (val rest = m.groupValues[2]) {
                 "", "정각", "영분", "공분" -> 0
                 "반" -> 30
                 else -> rest.takeIf { it.endsWith("분") }?.dropLast(1)?.let(::koreanNumber) ?: return null
             }
-            hour to minute
+            Clock(hour, minute, hourText.length == 2 && hourText[0] == '0')
         }
         ?: return null
-    return if (minute in 0..59) hour to minute else null // "열 시 70분"은 고치지 않는다
+    return clock.takeIf { it.minute in 0..59 } // "열 시 70분"은 고치지 않는다
 }
 
-private fun withMarker(marker: String?, h: Int, m: Int): ParsedTime {
+private fun withMarker(marker: String?, clock: Clock): ParsedTime {
+    val (h, m) = clock
     fun at(hour: Int) = ParsedTime.Clock(ClockTime.Exact(LocalTime.of(hour, m)))
     return when (marker) {
         null -> when (h) {
             0 -> at(0)
-            in 1..11 -> ParsedTime.Clock(ClockTime.AmOrPm(LocalTime.of(h, m)))
+            in 1..11 -> if (clock.twentyFourHour) at(h) else ParsedTime.Clock(ClockTime.AmOrPm(LocalTime.of(h, m)))
             in 12..23 -> at(h) // 열두 시는 낮 열두 시
             24 -> if (m == 0) midnight(0) else ParsedTime.Unknown
             else -> ParsedTime.Unknown

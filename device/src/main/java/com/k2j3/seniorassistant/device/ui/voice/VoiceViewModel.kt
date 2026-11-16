@@ -48,8 +48,8 @@ data class VoiceUiState(
 
 /**
  * 말로 부탁하기 대화 (FR-02, FR-03, FR-05).
- * 듣기 → server.voice.ask → 대답 / 초안 / 다시 묻기 / 준비 중.
- * 초안은 "응"을 들어야만 저장한다 (SCH-02 / SCH-03).
+ * 듣기 → server.voice.ask → 대답 / 초안 / 오전·오후 되묻기 / 다시 묻기 / 준비 중.
+ * 초안은 "응"을 들어야만 저장한다 (SCH-02 / SCH-03). 짧은 대답은 STT로만 듣는다 (server.voice.hear).
  */
 class VoiceViewModel(
     private val server: BoardApiServer,
@@ -89,9 +89,18 @@ class VoiceViewModel(
     fun stop() { job?.cancel() }
 
     private suspend fun converse() {
+        var halfDay: VoiceAnswer.AskHalfDay? = null // "오전 3시요, 오후 3시요?" 다음에는 그 대답으로 듣는다
         while (true) {
             val audio = listen()
-            when (val answer = think { askUntilReady(audio) }) {
+            val question = halfDay
+            halfDay = null
+            val answer = think { if (question != null) server.voice.chooseHalfDay(question, audio) else askUntilReady(audio) }
+            when (answer) {
+                is VoiceAnswer.AskHalfDay -> {
+                    if (answer.transcript.isNotBlank()) add(VoiceMessage.Me(answer.transcript))
+                    add(VoiceMessage.Bot(answer.text)); say(answer.audio)
+                    halfDay = answer
+                }
                 is VoiceAnswer.Answered -> {
                     add(VoiceMessage.Me(answer.transcript), VoiceMessage.Bot(answer.text))
                     say(answer.audio, holdIfSilent = false)
@@ -118,7 +127,7 @@ class VoiceViewModel(
     private suspend fun confirm(draft: Schedule): Boolean {
         while (true) {
             val audio = listen()
-            val heard = think { transcriptOf(server.voice.ask(audio)) }
+            val heard = think { server.voice.hear(audio) } // STT only: "응" does not need the LLM
             if (heard.isNotBlank()) add(VoiceMessage.Me(heard))
             when {
                 YES.any { it in heard } && NO.none { it in heard } -> {
@@ -202,13 +211,6 @@ class VoiceViewModel(
         VoiceMode.WRITE -> VoiceMessage.Bot("언제, 무슨 일이 있으세요?", example = "모레 11시에 치과 가야 해")
         VoiceMode.ASK -> VoiceMessage.Bot("무엇이 궁금하세요?", example = "오늘 병원 몇 시야?")
         VoiceMode.EDIT -> VoiceMessage.Bot("어떤 할 일을 바꾸거나 지울까요?", example = "병원 3시로 바꿔 줘")
-    }
-
-    private fun transcriptOf(a: VoiceAnswer) = when (a) {
-        is VoiceAnswer.Answered -> a.transcript
-        is VoiceAnswer.Draft -> a.transcript
-        is VoiceAnswer.AskAgain -> a.transcript
-        VoiceAnswer.NotReady -> ""
     }
 
     private companion object {

@@ -21,6 +21,14 @@ internal object Sentences { // spoken and shown as is
     fun draft(schedule: Schedule, today: LocalDate): String =
         "이렇게 적을까요? ${describe(schedule, today)}"
 
+    // morning: the morning candidate of a 1-11 o'clock time said without 오전/오후
+    fun askHalfDay(morning: LocalTime): String {
+        val time = if (morning.minute == 0) "${morning.hour}시요" else "${morning.hour}시 ${morning.minute}분이요"
+        return "오전 $time, 오후 $time?"
+    }
+
+    fun askHalfDayAgain(morning: LocalTime): String = "오전인지 오후인지 말씀해 주세요. " + askHalfDay(morning)
+
     fun dailySummary(schedules: List<Schedule>, today: LocalDate): String =
         "오늘 일정은 ${schedules.size}개예요. " + found(schedules, today)
 

@@ -31,6 +31,16 @@ sealed interface VoiceAnswer {
         override val audio: ByteArray?,
     ) : VoiceAnswer
 
+    /** "세 시"처럼 오전·오후 없이 말한 등록: "오전 3시요, 오후 3시요?" 대답은 [VoiceApi.chooseHalfDay]로 */
+    data class AskHalfDay(
+        val transcript: String,
+        val morning: Schedule,
+        val afternoon: Schedule,
+        val retries: Int,
+        override val text: String,
+        override val audio: ByteArray?,
+    ) : VoiceAnswer
+
     data class AskAgain(
         val transcript: String,
         override val text: String,
@@ -69,6 +79,28 @@ class VoiceApi internal constructor(
         }
     }
 
+    /** 짧은 대답("응", "오후요")은 STT로만 듣는다. LLM은 8초쯤 걸린다. 못 들었거나 준비 중이면 "" */
+    suspend fun hear(audio: ByteArray): String =
+        (queue.transcribe(audio) as? InferenceResult.Success)?.value?.trim().orEmpty()
+
+    /** [VoiceAnswer.AskHalfDay]에 대한 대답. 두 번 더 못 알아들으면 1~6시는 오후, 7~11시는 오전으로 본다 */
+    suspend fun chooseHalfDay(question: VoiceAnswer.AskHalfDay, audio: ByteArray): VoiceAnswer {
+        val heard = hear(audio)
+        val chosen = when (halfDayOf(heard)) {
+            HalfDay.MORNING -> question.morning
+            HalfDay.AFTERNOON -> question.afternoon
+            null -> if (question.retries < HALF_DAY_RETRIES) {
+                val text = Sentences.askHalfDayAgain(question.morning.time!!)
+                return question.copy(transcript = heard, retries = question.retries + 1, text = text, audio = speaker.speak(text))
+            } else if (question.morning.time!!.hour in 1..6) {
+                question.afternoon // "세 시에 병원"은 보통 오후
+            } else {
+                question.morning // "여덟 시에 깨워 줘"는 보통 아침
+            }
+        }
+        return draftAnswer(heard, chosen, now().toLocalDate())
+    }
+
     // the board's own words (confirm prompts, done) in the user's speech rate; null when it cannot be made
     suspend fun speak(text: String): ByteArray? = speaker.speak(text)
 
@@ -78,11 +110,23 @@ class VoiceApi internal constructor(
         requestTime: LocalDateTime,
     ): VoiceAnswer {
         val place = query.place.ifBlank { null }
-        val time = timeOf(query)
         val found = when (query.type) {
-            QueryType.CONDITION -> dateOf(query)
-                ?.let { schedules.getSchedules(it, it, time, place) }
-                ?: upcoming(time, place, requestTime)
+            QueryType.CONDITION -> {
+                val spoken = resolveSpokenWhen(query.dateExpression, query.timeExpression, requestTime, future = false)
+                val times = when (val time = spoken.time) {
+                    is Spoken.Value -> when (val clock = time.value) {
+                        is ClockTime.Exact -> listOf(clock.time)
+                        is ClockTime.AmOrPm -> listOf(clock.am, clock.pm) // "세 시에 뭐 있어?": 둘 다 찾는다
+                    }
+                    else -> listOf(null) // 시각을 말하지 않았거나 "세 시부터"처럼 찾을 수 없는 범위: 그날 전체
+                }
+                val matched = when (val date = spoken.date) {
+                    is Spoken.Value -> times.flatMap { schedules.getSchedules(date.value, date.value, it, place) }
+                    Spoken.None -> times.flatMap { upcoming(it, place, requestTime) }
+                    Spoken.Unknown -> return askAgain(transcript, Sentences.ASK_AGAIN) // "다음 주", "이번 주말"
+                }
+                matched.distinctBy { it.schedule.id }.sortedWith(compareBy({ it.schedule.date }, { it.schedule.time }))
+            }
             QueryType.RECENT -> schedules.getRecentSchedules(1, place)
             QueryType.NEXT -> schedules.getNextSchedules(requestTime, 1, place)
             QueryType.UNCLEAR -> return askAgain(transcript, Sentences.ASK_AGAIN)
@@ -113,20 +157,37 @@ class VoiceApi internal constructor(
             SetType.ALARM -> ScheduleKind.ALARM
             SetType.UNCLEAR -> return askAgain(transcript, Sentences.ASK_AGAIN) // never saved
         }
-        val date = dateOf(set)
-        val time = timeOf(set)
-        val draft = editing?.copy( // only the spoken fields change; the place stays (the model puts it in the title)
+        if (editing == null && set.title.isBlank()) return askAgain(transcript, Sentences.ASK_AGAIN)
+        val spoken = resolveSpokenWhen(set.dateExpression, set.timeExpression, requestTime, future = true)
+        val date = when (val d = spoken.date) {
+            is Spoken.Value -> d.value
+            Spoken.None -> null
+            Spoken.Unknown -> return askAgain(transcript, Sentences.ASK_AGAIN) // 잘못된 날로 저장하지 않는다
+        }
+
+        fun at(time: LocalTime?): Schedule = editing?.copy( // only the spoken fields change; the place stays
             title = set.title.ifBlank { editing.title },
             date = date ?: editing.date,
             time = time ?: editing.time,
             kind = kind,
-        ) ?: Schedule(
-            title = set.title.ifBlank { return askAgain(transcript, Sentences.ASK_AGAIN) },
-            date = date ?: dayOf(time, requestTime),
-            time = time,
-            kind = kind,
-        )
-        val text = Sentences.draft(draft, requestTime.toLocalDate())
+        ) ?: Schedule(title = set.title, date = date ?: dayOf(time, requestTime), time = time, kind = kind)
+
+        val today = requestTime.toLocalDate()
+        return when (val time = spoken.time) {
+            Spoken.None -> draftAnswer(transcript, at(null), today)
+            Spoken.Unknown -> askAgain(transcript, Sentences.ASK_AGAIN)
+            is Spoken.Value -> when (val clock = time.value) {
+                is ClockTime.Exact -> draftAnswer(transcript, at(clock.time), today)
+                is ClockTime.AmOrPm -> {
+                    val text = Sentences.askHalfDay(clock.am)
+                    VoiceAnswer.AskHalfDay(transcript, at(clock.am), at(clock.pm), 0, text, speaker.speak(text))
+                }
+            }
+        }
+    }
+
+    private suspend fun draftAnswer(transcript: String, draft: Schedule, today: LocalDate): VoiceAnswer {
+        val text = Sentences.draft(draft, today)
         return VoiceAnswer.Draft(transcript, draft, text, speaker.speak(text))
     }
 
@@ -136,17 +197,27 @@ class VoiceApi internal constructor(
         return if (passed) today.plusDays(1) else today // "8시에 알려줘" means the next 8 o'clock
     }
 
-    // 2단계(날짜·시간 표현 해석기)에서 채운다. 그 전까지는 날짜·시간 조건이 없는 것으로 처리한다
-    @Suppress("UNUSED_PARAMETER")
-    private fun dateOf(call: FunctionCall): LocalDate? = null
-
-    @Suppress("UNUSED_PARAMETER")
-    private fun timeOf(call: FunctionCall): LocalTime? = null
-
     private suspend fun askAgain(transcript: String, text: String) =
         VoiceAnswer.AskAgain(transcript, text, speaker.speak(text))
 
     private companion object {
         val OPEN_END: LocalDate = LocalDate.of(9999, 12, 31) // LocalDate.MAX breaks text order
+        const val HALF_DAY_RETRIES = 2
     }
 }
+
+internal enum class HalfDay { MORNING, AFTERNOON }
+
+/** "오후요", "아침에" 같은 짧은 대답. 둘 다 있거나("오전 말고 오후") 없으면 null */
+internal fun halfDayOf(heard: String): HalfDay? {
+    val morning = MORNING_WORDS.any { it in heard }
+    val afternoon = AFTERNOON_WORDS.any { it in heard }
+    return when {
+        morning && !afternoon -> HalfDay.MORNING
+        afternoon && !morning -> HalfDay.AFTERNOON
+        else -> null
+    }
+}
+
+private val MORNING_WORDS = listOf("오전", "아침", "새벽")
+private val AFTERNOON_WORDS = listOf("오후", "점심", "낮", "저녁", "밤")

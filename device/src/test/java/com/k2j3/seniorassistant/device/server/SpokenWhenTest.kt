@@ -180,6 +180,14 @@ class SpokenWhenTest {
     }
 
     @Test
+    fun colonsAndLeadingZerosMeanATwentyFourHourClock() {
+        assertEquals(exact(9), time("09:00"))
+        assertEquals(exact(9, 5), time("9:05"))
+        assertEquals(exact(2, 30), time("02시 반"))
+        assertEquals(exact(8, 50), time("08시 50분"))
+    }
+
+    @Test
     fun elapsedTimesStartFromNow() {
         assertEach(SpokenWhen(day(11, 18), exact(14, 30)),
             "삼십 분 있다가", "반 시간 뒤에", "반 시간 있다", "지금부터 서른 분 뒤", "지금 기준 반 시간 뒤",

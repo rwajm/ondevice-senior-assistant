@@ -36,6 +36,23 @@ class SentencesTest {
     }
 
     @Test
+    fun halfDayIsAskedWithTheHourSpoken() {
+        assertEquals("오전 3시요, 오후 3시요?", Sentences.askHalfDay(LocalTime.of(3, 0)))
+        assertEquals("오전 8시 30분이요, 오후 8시 30분이요?", Sentences.askHalfDay(LocalTime.of(8, 30)))
+        assertEquals(
+            "오전인지 오후인지 말씀해 주세요. 오전 3시요, 오후 3시요?",
+            Sentences.askHalfDayAgain(LocalTime.of(3, 0)),
+        )
+    }
+
+    @Test
+    fun shortAnswersPickTheHalfOfTheDay() {
+        listOf("오전요", "아침에", "새벽 세 시", "아침 여덟 시").forEach { assertEquals(it, HalfDay.MORNING, halfDayOf(it)) }
+        listOf("오후요", "오후", "저녁이야", "밤에", "낮 세 시").forEach { assertEquals(it, HalfDay.AFTERNOON, halfDayOf(it)) }
+        listOf("", "응", "몰라", "오전 말고 오후").forEach { assertEquals(it, null, halfDayOf(it)) }
+    }
+
+    @Test
     fun emptyResultAndSummaryAndDocument() {
         assertEquals(Sentences.NOT_FOUND, Sentences.found(emptyList(), today))
         val walk = Schedule(title = "산책", date = today, time = LocalTime.of(7, 0))
