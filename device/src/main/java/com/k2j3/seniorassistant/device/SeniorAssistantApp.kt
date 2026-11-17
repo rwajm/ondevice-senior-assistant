@@ -4,7 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.k2j3.seniorassistant.device.ai.ModelFiles
 import com.k2j3.seniorassistant.device.ai.document.DocumentAnalyzer
-import com.k2j3.seniorassistant.device.ai.document.FakeExternalAiClient
+import com.k2j3.seniorassistant.device.ai.document.OpenAiClient
 import com.k2j3.seniorassistant.device.ai.llm.FakeLlmModule
 import com.k2j3.seniorassistant.device.ai.llm.GenieDialog
 import com.k2j3.seniorassistant.device.ai.llm.GenieLlmModule
@@ -30,11 +30,12 @@ import kotlinx.coroutines.launch
 class SeniorAssistantApp : Application() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    val server: BoardApiServer by lazy { // the OpenAI client is still a fake
+    val server: BoardApiServer by lazy {
         BoardApiServer.create(
             this,
             InferenceQueue(stt(), llm(), tts()),
-            DocumentAnalyzer(FakeExternalAiClient()),
+            // 키가 비어 있으면 OpenAiClient가 실패를 돌려주고 문서 화면은 기존의 안내 문구를 보여 준다.
+            DocumentAnalyzer(OpenAiClient(BuildConfig.OPENAI_API_KEY)),
         )
     }
 

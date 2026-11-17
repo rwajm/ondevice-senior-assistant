@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -19,6 +21,13 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 문서 읽기(EXT-01)의 OpenAI 키: local.properties(git에 올리지 않음)의 openai.api.key.
+        // 없으면 빈 값으로 빌드되고, 문서 읽기는 "지금은 문서를 읽을 수 없어요"로 답한다.
+        val localProperties = Properties().apply {
+            rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+        }
+        buildConfigField("String", "OPENAI_API_KEY", "\"${localProperties.getProperty("openai.api.key", "").trim()}\"")
 
         ndk {
             // QCS6490 board and the Apple Silicon emulator; keeps the other sherpa-onnx ABIs (~90 MB) out
@@ -58,6 +67,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
