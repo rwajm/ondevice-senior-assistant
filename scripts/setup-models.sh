@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# 온디바이스 음성 모델(VAD, STT, TTS)을 받아서 보드의 앱 폴더에 올린다. (Mac / Linux)
+# 온디바이스 모델(VAD, STT, TTS, 선택적으로 LLM)을 받아서 보드의 앱 폴더에 올린다. (Mac / Linux)
 # Windows는 setup-models.ps1을 쓴다.
 #
 # 사용법:
 #   scripts/setup-models.sh                    # 연결된 기기 하나에 올린다
 #   scripts/setup-models.sh -s 192.168.0.61:5555
+#   scripts/setup-models.sh --llm-bundle ~/Downloads/team8_v3_bias_corrected
 #   scripts/setup-models.sh --download-only    # 받아서 정리만 (보드 없이)
 #
 # 먼저 앱을 debug 빌드로 보드에 한 번 설치해 둔다 (run-as는 debug 빌드에서만 된다).
@@ -16,12 +17,15 @@ RELEASES=https://github.com/k2-fsa/sherpa-onnx/releases/download
 CACHE="${SENIOR_MODELS_CACHE:-$HOME/.cache/senior-assistant-models}"
 SERIAL=""
 DOWNLOAD_ONLY=0
+LLM_BUNDLE=""
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 while [ $# -gt 0 ]; do
     case "$1" in
         -s) SERIAL="$2"; shift 2 ;;
+        --llm-bundle) LLM_BUNDLE="$2"; shift 2 ;;
         --download-only) DOWNLOAD_ONLY=1; shift ;;
-        -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
         *) echo "알 수 없는 옵션: $1" >&2; exit 2 ;;
     esac
 done
@@ -47,6 +51,16 @@ MODEL_FILES=(
     "tts/ko_KO-kss_low.onnx|552af73776a1c2a705d828e1435592419eb42b1de9cc2bcb3bb5bcf6efb90cd9"
     "tts/tokens.txt|d2a7e6696166162a0613812a02f23f2f682a12e05a4cc9864193a3c71c1f3ecb"
 )
+
+# Qualcomm Genie 번들은 모델 파일과 함께 제공된다. 새 모델도 이 다섯 파일의 이름을 유지한다.
+LLM_MODEL_NAMES=(
+    genie_config_npu.json runtime_prompt_template.txt tokenizer.json llama32_hf_v68.bin htp_backend_ext_config.json
+)
+QUALCOMM_LIBRARY_NAMES=(
+    libGenie.so libQnnHtp.so libQnnSystem.so libQnnHtpV68Stub.so libQnnHtpV68Skel.so
+    libQnnHtpNetRunExtensions.so libc++_shared.so
+)
+LLM_MODEL_FILES=()
 
 # ---------------------------------------------------------------- 1. 받기
 step "1/4 모델 받기 (${CACHE})"
@@ -79,7 +93,36 @@ cp "$WORK/vits-mimic3-ko_KO-kss_low/ko_KO-kss_low.onnx" "$WORK/vits-mimic3-ko_KO
 cp -R "$WORK/vits-mimic3-ko_KO-kss_low/espeak-ng-data" "$MODELS/tts/"
 rm -rf "$WORK"
 
+if [ -n "$LLM_BUNDLE" ]; then
+    [ -d "$LLM_BUNDLE" ] || fail "LLM 번들 폴더가 없습니다: $LLM_BUNDLE"
+    LLM_BUNDLE="$(cd "$LLM_BUNDLE" && pwd)"
+    step "LLM 번들 확인 및 Qualcomm 라이브러리 복사"
+    mkdir -p "$MODELS/llm" "$ROOT/device/src/main/jniLibs/arm64-v8a"
+    for name in "${LLM_MODEL_NAMES[@]}"; do
+        source="$LLM_BUNDLE/$name"
+        target="$MODELS/llm/$name"
+        [ -s "$source" ] || fail "LLM 번들에 없거나 비어 있습니다: $name"
+        sum="$(sha256 "$source")"
+        cp "$source" "$target"
+        [ "$(sha256 "$target")" = "$sum" ] || fail "LLM 복사 뒤 해시가 다릅니다: $name"
+        LLM_MODEL_FILES+=("llm/$name|$sum")
+    done
+    for name in "${QUALCOMM_LIBRARY_NAMES[@]}"; do
+        source="$LLM_BUNDLE/$name"
+        target="$ROOT/device/src/main/jniLibs/arm64-v8a/$name"
+        [ -s "$source" ] || fail "LLM 번들에 Qualcomm 라이브러리가 없습니다: $name"
+        sum="$(sha256 "$source")"
+        cp "$source" "$target"
+        [ "$(sha256 "$target")" = "$sum" ] || fail "Qualcomm 라이브러리 복사 뒤 해시가 다릅니다: $name"
+    done
+fi
+
 for entry in "${MODEL_FILES[@]}"; do
+    IFS='|' read -r path sum <<< "$entry"
+    [ "$(sha256 "$MODELS/$path")" = "$sum" ] || fail "${path} 해시가 다릅니다"
+done
+# ${arr[@]+...}: bash 3.2 (macOS) treats an empty array as unbound under set -u
+for entry in ${LLM_MODEL_FILES[@]+"${LLM_MODEL_FILES[@]}"}; do
     IFS='|' read -r path sum <<< "$entry"
     [ "$(sha256 "$MODELS/$path")" = "$sum" ] || fail "${path} 해시가 다릅니다"
 done
@@ -92,7 +135,18 @@ if [ "$DOWNLOAD_ONLY" = 1 ]; then
 fi
 
 # ---------------------------------------------------------------- 3. 보드에 올리기
-step "3/4 보드에 올리기"
+BOARD_STEP="3/4"
+VERIFY_STEP="4/4"
+if [ -n "$LLM_BUNDLE" ]; then
+    step "3/5 Qualcomm 라이브러리를 포함해 debug APK 설치"
+    [ -x "$ROOT/gradlew" ] || fail "gradlew를 찾을 수 없습니다: $ROOT/gradlew"
+    [ -n "$SERIAL" ] && export ANDROID_SERIAL="$SERIAL" # installDebug도 -s로 고른 보드에만 설치한다
+    "$ROOT/gradlew" :device:installDebug --console=plain || fail "Qualcomm 라이브러리를 포함한 debug APK 설치에 실패했습니다"
+    BOARD_STEP="4/5"
+    VERIFY_STEP="5/5"
+fi
+
+step "$BOARD_STEP 보드에 올리기"
 ADB="$(command -v adb || true)"
 for candidate in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "$HOME/Library/Android/sdk" "$HOME/Android/Sdk"; do
     [ -n "$ADB" ] && break
@@ -110,22 +164,36 @@ adb shell run-as "$PKG" true 2>/dev/null \
     || fail "run-as가 안 됩니다. release가 아니라 debug 빌드로 설치하세요"
 
 TMP=/data/local/tmp/senior-assistant-models
+COMPONENTS=(vad stt tts)
+[ -n "$LLM_BUNDLE" ] && COMPONENTS+=(llm)
+adb shell am force-stop "$PKG"
 adb shell rm -rf "$TMP"
 echo "  올리는 중 (무선이면 1~2분)..."
-adb push "$MODELS" "$TMP" > /dev/null
+for component in "${COMPONENTS[@]}"; do
+    adb push "$MODELS/$component" "$TMP/$component" > /dev/null
+done
 adb shell chmod -R a+rX "$TMP" # 앱이 shell 소유 파일을 읽을 수 있게
-adb shell "run-as $PKG sh -c 'rm -rf files/models.new && cp -r $TMP files/models.new && rm -rf files/models && mv files/models.new files/models'" \
-    || fail "앱 폴더로 복사하지 못했습니다"
+for component in "${COMPONENTS[@]}"; do
+    adb shell "run-as $PKG sh -c 'mkdir -p files/models && rm -rf files/models/$component.new && cp -r $TMP/$component files/models/$component.new && rm -rf files/models/$component && mv files/models/$component.new files/models/$component'" \
+        || fail "앱 폴더로 복사하지 못했습니다: $component"
+done
 adb shell rm -rf "$TMP"
 
-BOARD_COUNT=$(adb shell "run-as $PKG sh -c 'find files/models -type f | wc -l'" | tr -d '[:space:]')
-[ "$BOARD_COUNT" = "$FILE_COUNT" ] || fail "보드의 파일 수(${BOARD_COUNT})가 이 컴퓨터(${FILE_COUNT})와 다릅니다"
-BOARD_SUM=$(adb shell "run-as $PKG sha256sum files/models/stt/model.int8.onnx" | cut -d' ' -f1)
-[ "$BOARD_SUM" = "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51" ] || fail "보드의 STT 모델 해시가 다릅니다"
+BOARD_COUNT=0
+for component in "${COMPONENTS[@]}"; do
+    count=$(adb shell "run-as $PKG sh -c 'find files/models/$component -type f | wc -l'" | tr -d '[:space:]')
+    BOARD_COUNT=$((BOARD_COUNT + count))
+done
+[ "$BOARD_COUNT" = "$FILE_COUNT" ] || fail "보드의 설치 파일 수(${BOARD_COUNT})가 이 컴퓨터(${FILE_COUNT})와 다릅니다"
+for entry in "${MODEL_FILES[@]}" ${LLM_MODEL_FILES[@]+"${LLM_MODEL_FILES[@]}"}; do
+    IFS='|' read -r path sum <<< "$entry"
+    BOARD_SUM=$(adb shell "run-as $PKG sha256sum files/models/$path" | cut -d' ' -f1)
+    [ "$BOARD_SUM" = "$sum" ] || fail "보드의 해시가 다릅니다: $path"
+done
 echo "  파일 ${BOARD_COUNT}개, 해시 일치"
 
 # ---------------------------------------------------------------- 4. 확인
-step "4/4 앱을 다시 켜서 확인"
+step "$VERIFY_STEP 앱을 다시 켜서 확인"
 adb shell am force-stop "$PKG"
 adb logcat -c
 adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1
@@ -135,6 +203,10 @@ for _ in $(seq 1 15); do
     [ -n "$LOG" ] && break
 done
 echo "  ${LOG:-(로그 없음)}"
-echo "$LOG" | grep -q "model files ready" || fail "앱이 모델을 찾지 못했습니다 (위 로그 확인)"
-
-echo; echo "완료: 모델을 올렸고 앱이 찾았습니다."
+if [ -n "$LLM_BUNDLE" ]; then
+    echo "$LOG" | grep -q "model files ready" || fail "앱이 모델을 찾지 못했습니다 (위 로그 확인)"
+    echo; echo "완료: 모델·Qualcomm 라이브러리를 설치했고 앱이 실제 LLM 번들을 찾았습니다."
+else
+    echo "  LLM 번들을 지정하지 않아 기존 LLM 폴더는 보존했습니다. 새 앱에서 실제 LLM을 쓰려면 --llm-bundle을 사용하세요."
+    echo; echo "완료: 음성 모델을 올렸고 기존 LLM 폴더는 보존했습니다."
+fi
