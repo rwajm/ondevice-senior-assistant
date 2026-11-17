@@ -103,17 +103,17 @@ class VoiceViewModel(
             val answer = think { if (question != null) server.voice.chooseHalfDay(question, audio) else askUntilReady(audio) }
             when (answer) {
                 is VoiceAnswer.AskHalfDay -> {
-                    if (answer.transcript.isNotBlank()) add(VoiceMessage.Me(answer.transcript))
+                    if (answer.transcript.isNotBlank()) add(me(answer.transcript))
                     add(VoiceMessage.Bot(answer.text)); say(answer.audio)
                     halfDay = answer
                 }
                 is VoiceAnswer.Answered -> {
-                    add(VoiceMessage.Me(answer.transcript), VoiceMessage.Bot(answer.text))
+                    add(me(answer.transcript), VoiceMessage.Bot(answer.text))
                     say(answer.audio, holdIfSilent = false)
                     return finish()
                 }
                 is VoiceAnswer.AskAgain -> {
-                    if (answer.transcript.isNotBlank()) add(VoiceMessage.Me(answer.transcript))
+                    if (answer.transcript.isNotBlank()) add(me(answer.transcript))
                     add(VoiceMessage.Bot(answer.text)); say(answer.audio)
                 }
                 VoiceAnswer.NotReady -> {
@@ -125,7 +125,7 @@ class VoiceViewModel(
                         answer.draft.kind == ScheduleKind.ALARM -> "이렇게 알람을 맞출까요?"
                         else -> "이렇게 넣을까요?"
                     }
-                    add(VoiceMessage.Me(answer.transcript), VoiceMessage.Draft(title, answer.draft, editing))
+                    add(me(answer.transcript), VoiceMessage.Draft(title, answer.draft, editing))
                     say(answer.audio)
                     if (confirm(answer.draft)) return finish()
                 }
@@ -138,7 +138,7 @@ class VoiceViewModel(
         while (true) {
             val audio = listen()
             val heard = think { server.voice.hear(audio) } // STT only: "응" does not need the LLM
-            if (heard.isNotBlank()) add(VoiceMessage.Me(heard))
+            if (heard.isNotBlank()) add(me(heard))
             when {
                 YES.any { it in heard } && NO.none { it in heard } -> {
                     save(draft)
@@ -217,6 +217,9 @@ class VoiceViewModel(
         state.update { it.copy(messages = it.messages - VoiceMessage.Thinking) }
         return result
     }
+
+    /** 어르신의 말: STT 글자의 띄어쓰기만 정리해서 보여 준다 (답을 정하는 데는 원래 글자를 썼다) */
+    private fun me(transcript: String) = VoiceMessage.Me(tidyTranscript(transcript))
 
     private fun add(vararg m: VoiceMessage) = state.update { it.copy(messages = it.messages + m, status = VoiceStatus.SPEAK) }
 
