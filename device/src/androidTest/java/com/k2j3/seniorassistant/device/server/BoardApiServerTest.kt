@@ -306,6 +306,7 @@ class BoardApiServerTest {
         Log.d(TAG, "document: ${reading.text}")
         assertEquals("건강검진", reading.fields.title)
         assertTrue(reading.text.startsWith("이런 내용이 있어요."))
+        assertNotNull("문서 결과는 화면에서 재생할 TTS WAV를 함께 만들어야 한다", reading.audio)
 
         external.fail = true
         val failed = server.documents.read(png) as DocumentReading.Failed

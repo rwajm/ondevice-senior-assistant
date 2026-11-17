@@ -56,7 +56,7 @@ fun AppNavDisplay(modifier: Modifier = Modifier) {
     val voice = viewModel { VoiceViewModel(server, app.player, app.recorder) }
     val alarms = viewModel { AlarmViewModel(server.schedules) }
     val homeState by home.uiState.collectAsState()
-    val documents = viewModel { DocumentViewModel(server) }
+    val documents = viewModel { DocumentViewModel(server, app.player) }
     val settings = viewModel { SettingsViewModel(server, app.player) }
     val notices = viewModel { NoticeViewModel(server, app.player) }
 

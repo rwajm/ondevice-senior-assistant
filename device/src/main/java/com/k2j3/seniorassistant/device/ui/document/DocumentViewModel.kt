@@ -2,7 +2,9 @@ package com.k2j3.seniorassistant.device.ui.document
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.k2j3.seniorassistant.device.ai.document.DocumentField
 import com.k2j3.seniorassistant.device.ai.document.DocumentFields
+import com.k2j3.seniorassistant.device.audio.AudioPlayer
 import com.k2j3.seniorassistant.device.data.schedule.Schedule
 import com.k2j3.seniorassistant.device.server.BoardApiServer
 import com.k2j3.seniorassistant.device.server.DocumentReading
@@ -19,7 +21,13 @@ import kotlinx.coroutines.launch
 sealed interface DocumentStep {
     data object Choose : DocumentStep
     data class Reading(val image: ByteArray) : DocumentStep
-    data class Result(val fields: DocumentFields) : DocumentStep
+    data class Result(
+        val fields: DocumentFields,
+        /** 사진에서 확실히 읽지 못해 사용자가 확인해야 하는 항목 */
+        val uncertainFields: Set<DocumentField> = emptySet(),
+        /** 서버가 결과 문장으로 만든 TTS WAV. 결과 화면에서 자동 재생·다시 듣기에 쓴다. */
+        val audio: ByteArray? = null,
+    ) : DocumentStep
     /** retakePhoto: 글자를 못 찾음(다른 파일 고르기) / 아니면 지금은 읽을 수 없음(다시 해 보기·직접 적기) */
     data class Error(val message: String, val retakePhoto: Boolean) : DocumentStep
 }
@@ -36,7 +44,10 @@ data class DocumentUiState(
 /**
  * 문서 읽기 (FR-04): 고르기 → (처음이면 외부 전송 동의) → 읽는 중 → 결과 / 실패 → 할 일에 넣기.
  */
-class DocumentViewModel(private val server: BoardApiServer) : ViewModel() {
+class DocumentViewModel(
+    private val server: BoardApiServer,
+    private val player: AudioPlayer,
+) : ViewModel() {
 
     private val state = MutableStateFlow(DocumentUiState())
     val uiState: StateFlow<DocumentUiState> = state.asStateFlow()
@@ -44,10 +55,11 @@ class DocumentViewModel(private val server: BoardApiServer) : ViewModel() {
     private var pending: ByteArray? = null
     private var pickAfterConsent = false
     private var job: Job? = null
+    private var playback: Job? = null
 
     /** 고르기 화면으로 돌아왔을 때 처음 상태로 */
     fun reset() {
-        job?.cancel(); pending = null; pickAfterConsent = false
+        job?.cancel(); playback?.cancel(); pending = null; pickAfterConsent = false
         state.value = DocumentUiState()
     }
 
@@ -87,13 +99,20 @@ class DocumentViewModel(private val server: BoardApiServer) : ViewModel() {
     private fun readPending() {
         val image = pending ?: return
         job?.cancel()
+        playback?.cancel()
         state.update { it.copy(step = DocumentStep.Reading(image)) }
         job = viewModelScope.launch {
             when (val r = server.documents.read(image)) {
-                is DocumentReading.Extracted -> state.update { it.copy(step = DocumentStep.Result(r.fields)) }
+                is DocumentReading.Extracted -> {
+                    state.update { it.copy(step = DocumentStep.Result(r.fields, r.uncertainFields, r.audio)) }
+                    play(r.audio)
+                }
                 DocumentReading.ConsentRequired -> state.update { it.copy(step = DocumentStep.Choose, dialog = DocumentDialog.CONSENT) }
-                is DocumentReading.Failed -> state.update {
-                    it.copy(step = DocumentStep.Error(r.text, retakePhoto = r.text == Sentences.DOCUMENT_NOT_DETECTED))
+                is DocumentReading.Failed -> {
+                    state.update {
+                        it.copy(step = DocumentStep.Error(r.text, retakePhoto = r.text == Sentences.DOCUMENT_NOT_DETECTED))
+                    }
+                    play(r.audio)
                 }
             }
         }
@@ -109,6 +128,9 @@ class DocumentViewModel(private val server: BoardApiServer) : ViewModel() {
         }
     }
 
+    /** 결과 화면의 '소리로 듣기'. 재생 중 다시 누르면 처음부터 다시 읽는다. */
+    fun replayResult() = play((state.value.step as? DocumentStep.Result)?.audio)
+
     /** 뒤로: 고르기 화면이 아니면 고르기로, 고르기 화면이면 나가기 */
     fun back(onExit: () -> Unit) {
         if (state.value.step == DocumentStep.Choose) onExit() else reset()
@@ -120,6 +142,12 @@ class DocumentViewModel(private val server: BoardApiServer) : ViewModel() {
 
     fun showPhoneGuide() = state.update { it.copy(dialog = DocumentDialog.PHONE_GUIDE) }
     fun closeDialog() = state.update { it.copy(dialog = DocumentDialog.NONE) }
+
+    private fun play(audio: ByteArray?) {
+        if (audio == null) return
+        playback?.cancel()
+        playback = viewModelScope.launch { player.play(audio) }
+    }
 
     private companion object {
         const val MAX_IMAGE_BYTES = 10 * 1024 * 1024 // API 정의서: 최대 10 MB

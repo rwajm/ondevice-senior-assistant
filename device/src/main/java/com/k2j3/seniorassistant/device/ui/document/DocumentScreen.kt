@@ -44,6 +44,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.k2j3.seniorassistant.device.ai.document.DocumentField
 import com.k2j3.seniorassistant.device.ai.document.DocumentFields
 import com.k2j3.seniorassistant.device.ui.theme.DialogButton
 import com.k2j3.seniorassistant.device.ui.theme.AppCard
@@ -69,6 +70,7 @@ data class DocumentActions(
     val onRetry: () -> Unit = {},
     val onEdit: (DocumentFields) -> Unit = {},
     val onAdd: () -> Unit = {},
+    val onListen: () -> Unit = {},
     val onWriteManually: () -> Unit = {},
     val onCloseDialog: () -> Unit = {},
     val onDone: () -> Unit = {},
@@ -99,6 +101,7 @@ fun DocumentRoute(viewModel: DocumentViewModel, onExit: () -> Unit, onEdit: (Doc
             onRetry = viewModel::retry,
             onEdit = onEdit,
             onAdd = viewModel::addToSchedule,
+            onListen = viewModel::replayResult,
             onWriteManually = onWriteManually,
             onCloseDialog = viewModel::closeDialog,
             onDone = onDone,
@@ -194,22 +197,42 @@ private fun ResultStep(r: DocumentStep.Result, actions: DocumentActions) {
     AppScreen(title = "문서 읽기", onBack = actions.onBack) {
         AppCard(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 24.dp)) {
-                Text("이런 내용이 있어요", style = AppType.ScreenTitle.copy(fontSize = 44.sp), modifier = Modifier.padding(top = 8.dp, bottom = 22.dp))
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 22.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("이런 내용이 있어요", style = AppType.ScreenTitle.copy(fontSize = 44.sp))
+                    if (r.audio != null) {
+                        PillButton(
+                            "소리로 듣기", actions.onListen, leading = AppIcons.SpeakerIcon,
+                            container = AppColor.BlueSoft, border = AppColor.Blue, content = AppColor.BlueDeep,
+                        )
+                    }
+                }
                 Box(Modifier.fillMaxWidth().height(3.dp).background(AppColor.Text))
                 val whenText = listOfNotNull(f.date?.koreanDate(), f.time?.koreanTime()).joinToString(" ")
-                ResultRow("언제", whenText, AppColor.Green)
-                ResultRow("무엇", f.title, AppColor.Text)
-                ResultRow("어디서", f.place, AppColor.Text)
-                ResultRow("챙길것", f.items.joinToString(", "), AppColor.Text, last = true)
+                ResultRow("언제", whenText, AppColor.Green, r.uncertainFields.any { it == DocumentField.DATE || it == DocumentField.TIME })
+                ResultRow("무엇", f.title, AppColor.Text, DocumentField.TITLE in r.uncertainFields)
+                ResultRow("어디서", f.place, AppColor.Text, DocumentField.PLACE in r.uncertainFields)
+                ResultRow("챙길것", f.items.joinToString(", "), AppColor.Text, DocumentField.ITEMS in r.uncertainFields, last = true)
                 Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        if (f.date == null) "날짜를 읽지 못했어요. '고치기'로 채워 주세요." else "",
-                        style = AppType.Caption, color = AppColor.TextSub, modifier = Modifier.weight(1f),
+                        when {
+                            f.date == null -> "날짜를 읽지 못했어요. 날짜를 정한 뒤 할 일에 넣어 주세요."
+                            r.uncertainFields.isNotEmpty() -> "‘확인 필요’ 항목은 사진과 다시 맞춰 봐 주세요."
+                            else -> ""
+                        },
+                        style = AppType.Caption,
+                        color = if (r.uncertainFields.isNotEmpty()) AppColor.Amber else AppColor.TextSub,
+                        modifier = Modifier.weight(1f),
                     )
                     BigPill("고치기", AppIcons.PencilSmall, AppColor.Card, AppColor.Border, AppColor.Text) { actions.onEdit(f) }
+                    Box(Modifier.width(20.dp))
                     if (f.date != null) {
-                        Box(Modifier.width(20.dp))
                         BigPill("할 일에 넣기", AppIcons.Plus, AppColor.GreenSoft, AppColor.Green, AppColor.Green, actions.onAdd)
+                    } else {
+                        BigPill("날짜 정하고 넣기", AppIcons.Calendar, AppColor.GreenSoft, AppColor.Green, AppColor.Green) { actions.onEdit(f) }
                     }
                 }
             }
@@ -218,14 +241,19 @@ private fun ResultStep(r: DocumentStep.Result, actions: DocumentActions) {
 }
 
 @Composable
-private fun ResultRow(label: String, value: String, valueColor: Color, last: Boolean = false) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-        Text(label, style = AppType.TileTitle.copy(fontSize = 34.sp), modifier = Modifier.width(150.dp))
+private fun ResultRow(label: String, value: String, valueColor: Color, needsConfirmation: Boolean = false, last: Boolean = false) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        Text(label, style = AppType.TileTitle.copy(fontSize = 34.sp), modifier = Modifier.width(130.dp))
+        if (needsConfirmation) {
+            Box(Modifier.clip(RoundedCornerShape(12.dp)).background(AppColor.AmberSoft).padding(horizontal = 12.dp, vertical = 6.dp)) {
+                Text("확인 필요", style = AppType.Caption.copy(fontWeight = FontWeight.ExtraBold), color = AppColor.Amber)
+            }
+        }
         val shown = value.ifBlank { "읽지 못했어요" }
         Text(
-            shown.keepAll(),
+            shown.keepAll(), modifier = Modifier.weight(1f),
             style = AppType.TileTitle.copy(fontSize = 34.sp),
-            color = if (value.isBlank()) AppColor.TextQuietBorder else valueColor,
+            color = if (needsConfirmation) AppColor.Amber else if (value.isBlank()) AppColor.TextQuietBorder else valueColor,
         )
     }
     if (!last) Box(Modifier.fillMaxWidth().height(1.dp).background(AppColor.Border))
