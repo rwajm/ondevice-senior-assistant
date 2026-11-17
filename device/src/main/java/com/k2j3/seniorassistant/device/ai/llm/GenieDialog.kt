@@ -39,7 +39,7 @@ class GenieDialog private constructor(private var handle: Long) : AutoCloseable 
             unavailableReason?.let { throw IllegalStateException("Genie is not available: $it") }
             // the DSP loader reads this, not the app's linker; set before the first FastRPC session
             Os.setenv("ADSP_LIBRARY_PATH", "$nativeLibraryDir;/vendor/lib/rfsa/adsp;/system/lib/rfsa/adsp;/dsp", true)
-            val json = withAbsolutePaths(config.readText(), config.absoluteFile.parentFile!!)
+            val json = withoutPolling(withAbsolutePaths(config.readText(), config.absoluteFile.parentFile!!))
             return GenieDialog(GenieNative.nativeCreate(json.encodeToByteArray()))
         }
     }
@@ -61,6 +61,21 @@ internal fun withAbsolutePaths(configJson: String, dir: File): String {
 }
 
 private val PATH_KEYS = setOf("path", "ctx-bins", "extensions")
+
+/**
+ * 번들 설정의 "poll": true를 false로. true면 Genie 스레드 3개가 NPU를 기다리며 쉬지 않고 돌아서, 아무 요청이
+ * 없을 때도 앱이 CPU 코어 3개(약 290%)를 쓰고 보드가 74°C(요청 중 94°C)까지 오른다. false면 대기 중 CPU 4%,
+ * 55°C쯤이고 답 하나가 0.2초쯤(7.24초 → 7.44초) 늦어질 뿐이다 (2026-11-17 보드 측정).
+ * 앱이 덮어쓰므로 학습팀이 새 번들을 줄 때마다 설정을 고치지 않아도 된다.
+ */
+internal fun withoutPolling(configJson: String): String {
+    fun fix(element: JsonElement): JsonElement = when (element) {
+        is JsonObject -> JsonObject(element.mapValues { (k, v) -> if (k == "poll") JsonPrimitive(false) else fix(v) })
+        is JsonArray -> JsonArray(element.map(::fix))
+        is JsonPrimitive -> element
+    }
+    return fix(Json.parseToJsonElement(configJson)).toString()
+}
 
 /** genie_jni.c */
 internal object GenieNative {

@@ -45,6 +45,17 @@ class GenieConfigTest {
     }
 
     @Test
+    fun pollingIsTurnedOffAndTheRestKept() { // the v3/v4 bundles ship "poll": true
+        val json = """{"engine": {"n-threads": 3, "backend": {"QnnHtp": {"poll": true, "cpu-mask": "0xe0", "use-mmap": false}}}}"""
+        val htp = Json.parseToJsonElement(withoutPolling(json)).jsonObject["engine"]!!.jsonObject["backend"]!!
+            .jsonObject["QnnHtp"]!!.jsonObject
+        assertEquals("false", htp["poll"]!!.jsonPrimitive.content)
+        assertEquals("0xe0", htp["cpu-mask"]!!.jsonPrimitive.content)
+        assertEquals("false", htp["use-mmap"]!!.jsonPrimitive.content)
+        assertEquals(json.replace(" ", "").replace("\"poll\":true", "\"poll\":false"), withoutPolling(json))
+    }
+
+    @Test
     fun absolutePathsAreKept() {
         val json = """{"tokenizer": {"path": "/sdcard/tokenizer.json"}}"""
         assertEquals(json.replace(" ", ""), withAbsolutePaths(json, File("/m")))
