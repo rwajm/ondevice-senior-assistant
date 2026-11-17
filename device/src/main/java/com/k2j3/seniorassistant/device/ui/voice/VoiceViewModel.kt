@@ -19,8 +19,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** 말로 부탁하기에서 고른 카드 */
-enum class VoiceMode { WRITE, ASK, EDIT }
+/**
+ * 대화를 어디서 열었는지. 첫마디와 끝난 뒤 버튼만 다르고, 무엇을 할지(묻기·넣기)는 LLM이 말을 듣고 정한다.
+ * TALK: 처음 화면의 말로 부탁하기 / WRITE: 할 일 넣기 화면의 말로 넣기 / EDIT: 고르고 들어온 할 일을 말로 고치기
+ */
+enum class VoiceMode { TALK, WRITE, EDIT }
 
 /** 대화 말풍선 한 개 */
 sealed interface VoiceMessage {
@@ -59,7 +62,7 @@ class VoiceViewModel(
     private val speakHoldMillis: Long = 2_000,
 ) : ViewModel() {
 
-    private var mode = VoiceMode.ASK
+    private var mode = VoiceMode.TALK
     private var editing: Schedule? = null
     private var job: Job? = null
 
@@ -78,9 +81,9 @@ class VoiceViewModel(
         }
     }
 
-    /** '또 물어보기'는 이어서, '또 넣기/또 고치기'는 처음부터 */
+    /** '또 말하기'는 이어서, '또 넣기/또 고치기'는 처음부터 */
     fun again() {
-        if (mode != VoiceMode.ASK) return start(mode, editing?.id)
+        if (mode != VoiceMode.TALK) return start(mode, editing?.id)
         job?.cancel()
         state.update { it.copy(finished = false) }
         job = viewModelScope.launch { converse() }
@@ -206,11 +209,11 @@ class VoiceViewModel(
 
     private fun finish() = state.update { it.copy(status = VoiceStatus.SPEAK, finished = true) }
 
-    /** 카드마다 다른 첫마디와 예시 */
+    /** 어디서 열었는지에 따라 다른 첫마디와 예시 */
     private fun prompt() = when (mode) {
-        VoiceMode.WRITE -> VoiceMessage.Bot("언제, 무슨 일이 있으세요?", example = "모레 11시에 치과 가야 해")
-        VoiceMode.ASK -> VoiceMessage.Bot("무엇이 궁금하세요?", example = "오늘 병원 몇 시야?")
-        VoiceMode.EDIT -> VoiceMessage.Bot("어떤 할 일을 바꾸거나 지울까요?", example = "병원 3시로 바꿔 줘")
+        VoiceMode.TALK -> VoiceMessage.Bot("무엇을 도와드릴까요?", example = "\"내일 3시에 병원 가야 해\", \"병원 언제였지?\"")
+        VoiceMode.WRITE -> VoiceMessage.Bot("언제, 무슨 일이 있으세요?", example = "\"모레 11시에 치과 가야 해\"")
+        VoiceMode.EDIT -> VoiceMessage.Bot("어떻게 바꿀까요?", example = "\"3시로 바꿔 줘\"")
     }
 
     private companion object {

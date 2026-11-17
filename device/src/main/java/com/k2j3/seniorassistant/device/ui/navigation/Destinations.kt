@@ -19,10 +19,7 @@ data class ScheduleCreate(val date: String = "", val fromDocument: Boolean = fal
 data class ScheduleEdit(val scheduleId: Long = 0) : NavKey
 
 @Serializable
-data object Voice : NavKey // 말로 부탁하기: 카드 고르기
-
-@Serializable
-data class VoiceTalk(val mode: String, val editingId: Long = 0) : NavKey // 대화 (mode = VoiceMode 이름)
+data class VoiceTalk(val mode: String, val editingId: Long = 0) : NavKey // 말로 부탁하기 대화 (mode = VoiceMode 이름)
 
 @Serializable
 data object DocumentSource : NavKey // 문서 읽기 (고르기·읽는 중·결과 한 화면에서)

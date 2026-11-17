@@ -32,7 +32,6 @@ import com.k2j3.seniorassistant.device.ui.schedule.TodoRoute
 import com.k2j3.seniorassistant.device.ui.schedule.TodoViewModel
 import com.k2j3.seniorassistant.device.ui.settings.SettingsRoute
 import com.k2j3.seniorassistant.device.ui.settings.SettingsViewModel
-import com.k2j3.seniorassistant.device.ui.voice.VoiceChooseScreen
 import com.k2j3.seniorassistant.device.ui.voice.VoiceMode
 import com.k2j3.seniorassistant.device.ui.voice.VoiceRoute
 import com.k2j3.seniorassistant.device.ui.voice.VoiceViewModel
@@ -73,7 +72,7 @@ fun AppNavDisplay(modifier: Modifier = Modifier) {
                         openTodo = { go(ScheduleList()) },
                         openWrite = { go(Calendar) },
                         openDocument = { documents.reset(); go(DocumentSource) },
-                        openVoice = { go(Voice) },
+                        openVoice = { go(VoiceTalk(VoiceMode.TALK.name)) }, // 고르는 화면 없이 바로 대화
                         openSettings = { go(Settings) },
                     ),
                     onExit = { activity?.finish() },
@@ -109,9 +108,6 @@ fun AppNavDisplay(modifier: Modifier = Modifier) {
                     viewModel = form, onBack = goBack, onDone = goBack,
                     onVoice = { go(VoiceTalk(VoiceMode.EDIT.name, key.scheduleId)) },
                 )
-            }
-            entry<Voice> {
-                VoiceChooseScreen(onBack = goBack, onChoose = { mode -> go(VoiceTalk(mode.name)) })
             }
             entry<VoiceTalk> { key ->
                 LaunchedEffect(key) { voice.start(VoiceMode.valueOf(key.mode), key.editingId.takeIf { it != 0L }) }
