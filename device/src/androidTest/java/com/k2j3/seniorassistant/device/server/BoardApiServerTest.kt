@@ -150,6 +150,19 @@ class BoardApiServerTest {
     }
 
     @Test
+    fun aPlaceSaidInTheQueryIsFoundInTheTitleToo() = runTest { // the board test of 2026-11-17
+        server.start(backgroundScope)
+        addAll(
+            Schedule(title = "병원 방문", date = tomorrow.plusDays(1), time = LocalTime.of(15, 0)), // no place
+            Schedule(title = "산책", date = tomorrow, time = LocalTime.of(10, 0), place = "공원"),
+        )
+        llm.output = query(type = 3, place = "병원") // "병원 가는 거 언제야?"
+        assertEquals(listOf("병원 방문"), answeredTitles(server))
+        llm.output = query(type = 3, place = "공원")
+        assertEquals(listOf("산책"), answeredTitles(server))
+    }
+
+    @Test
     fun voiceQueryWithoutMorningOrAfternoonFindsBoth() = runTest {
         server.start(backgroundScope)
         addAll(

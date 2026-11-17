@@ -10,7 +10,7 @@ import java.time.LocalTime
 class ScheduleRepository(private val db: AppDatabase) {
     private val dao = db.scheduleDao()
 
-    // null matches any; place matches by substring
+    // null matches any; place matches by substring of the place or the title
     suspend fun getSchedules(
         from: LocalDate,
         to: LocalDate,
