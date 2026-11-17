@@ -59,8 +59,9 @@ class VoiceApi internal constructor(
     private val speaker: Speaker,
     private val now: () -> LocalDateTime,
 ) {
-    // editing: the schedule being changed by voice (FR-02), null otherwise
-    suspend fun ask(audio: ByteArray, editing: Schedule? = null): VoiceAnswer {
+    // editing: the schedule being changed by voice (FR-02), null otherwise.
+    // kind: what a new entry must be whatever the model says (the alarm screen's "말로 맞추기"), null to let it decide
+    suspend fun ask(audio: ByteArray, editing: Schedule? = null, kind: ScheduleKind? = null): VoiceAnswer {
         val transcript = when (val result = queue.transcribe(audio)) {
             is InferenceResult.Success -> result.value.trim()
             InferenceResult.NotReady -> return VoiceAnswer.NotReady
@@ -75,7 +76,7 @@ class VoiceApi internal constructor(
         }
         return when (call) {
             is FunctionCall.QuerySchedule -> answer(transcript, call, requestTime)
-            is FunctionCall.SetSchedule -> draft(transcript, call, editing, requestTime)
+            is FunctionCall.SetSchedule -> draft(transcript, call, editing, kind, requestTime)
         }
     }
 
@@ -150,9 +151,11 @@ class VoiceApi internal constructor(
         transcript: String,
         set: FunctionCall.SetSchedule,
         editing: Schedule?,
+        fixedKind: ScheduleKind?,
         requestTime: LocalDateTime,
     ): VoiceAnswer {
-        val kind = when (set.type) {
+        // changing one: it stays what it was ("3시로 바꿔 줘" says nothing about alarm or calendar)
+        val kind = editing?.kind ?: fixedKind ?: when (set.type) {
             SetType.CALENDAR -> ScheduleKind.CALENDAR
             SetType.ALARM -> ScheduleKind.ALARM
             SetType.UNCLEAR -> return askAgain(transcript, Sentences.ASK_AGAIN) // never saved

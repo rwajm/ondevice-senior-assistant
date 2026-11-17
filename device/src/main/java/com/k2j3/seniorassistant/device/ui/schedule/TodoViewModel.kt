@@ -25,7 +25,7 @@ class TodoViewModel(private val schedules: ScheduleApi) : ViewModel() {
     fun refresh() {
         viewModelScope.launch {
             val today = LocalDate.now()
-            val all = schedules.getSchedules(today, today.plusDays(1)).map { it.schedule }
+            val all = schedules.getSchedules(today, today.plusDays(1)).map { it.schedule }.calendarOnly()
             state.value = TodoUiState(today, all.on(today), all.on(today.plusDays(1)))
         }
     }

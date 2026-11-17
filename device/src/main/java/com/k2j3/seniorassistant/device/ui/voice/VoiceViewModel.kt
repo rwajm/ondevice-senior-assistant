@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.k2j3.seniorassistant.device.audio.AudioPlayer
 import com.k2j3.seniorassistant.device.audio.VoiceRecorder
 import com.k2j3.seniorassistant.device.data.schedule.Schedule
+import com.k2j3.seniorassistant.device.data.schedule.ScheduleKind
 import com.k2j3.seniorassistant.device.server.BoardApiServer
 import com.k2j3.seniorassistant.device.server.VoiceAnswer
 import com.k2j3.seniorassistant.device.ui.common.koreanDate
@@ -22,8 +23,9 @@ import kotlinx.coroutines.launch
 /**
  * 대화를 어디서 열었는지. 첫마디와 끝난 뒤 버튼만 다르고, 무엇을 할지(묻기·넣기)는 LLM이 말을 듣고 정한다.
  * TALK: 처음 화면의 말로 부탁하기 / WRITE: 할 일 넣기 화면의 말로 넣기 / EDIT: 고르고 들어온 할 일을 말로 고치기
+ * ALARM: 알람 맞추기 화면의 말로 맞추기 (모델이 일정으로 보더라도 알람으로 넣는다)
  */
-enum class VoiceMode { TALK, WRITE, EDIT }
+enum class VoiceMode { TALK, WRITE, EDIT, ALARM }
 
 /** 대화 말풍선 한 개 */
 sealed interface VoiceMessage {
@@ -45,8 +47,9 @@ data class VoiceUiState(
     val status: VoiceStatus,
     /** 대화가 끝나서 '또 물어보기/넣기/고치기'를 보여 줄 때 */
     val finished: Boolean = false,
-    /** 저장한 할 일의 날짜 (저장한 뒤 그 날의 달력으로 넘어간다) */
+    /** 저장한 할 일의 날짜 (저장한 뒤 그 날의 달력으로, 알람이면 알람 화면으로 넘어간다) */
     val savedDate: LocalDate? = null,
+    val savedAlarm: Boolean = false,
 )
 
 /**
@@ -117,7 +120,11 @@ class VoiceViewModel(
                     add(VoiceMessage.Bot(answer.text, isError = true)); say(answer.audio)
                 }
                 is VoiceAnswer.Draft -> {
-                    val title = if (editing != null) "이렇게 바꿀까요?" else "이렇게 넣을까요?"
+                    val title = when {
+                        editing != null -> "이렇게 바꿀까요?"
+                        answer.draft.kind == ScheduleKind.ALARM -> "이렇게 알람을 맞출까요?"
+                        else -> "이렇게 넣을까요?"
+                    }
                     add(VoiceMessage.Me(answer.transcript), VoiceMessage.Draft(title, answer.draft, editing))
                     say(answer.audio)
                     if (confirm(answer.draft)) return finish()
@@ -138,7 +145,7 @@ class VoiceViewModel(
                     val done = doneText(draft)
                     add(VoiceMessage.Bot(done))
                     sayText(done, holdIfSilent = false) // savedDate가 바뀌면 화면을 떠나서 읽기가 끊기므로 먼저 읽는다
-                    state.update { it.copy(savedDate = draft.date) }
+                    state.update { it.copy(savedDate = draft.date, savedAlarm = draft.kind == ScheduleKind.ALARM) }
                     return true
                 }
                 NO.any { it in heard } -> {
@@ -154,11 +161,13 @@ class VoiceViewModel(
 
     private suspend fun askUntilReady(audio: ByteArray): VoiceAnswer {
         repeat(3) {
-            val a = server.voice.ask(audio, editing)
+            val a = server.voice.ask(audio, editing, fixedKind())
             if (a == VoiceAnswer.NotReady) delay(1_000) else return a // 준비 중이면 1초 뒤 다시
         }
-        return server.voice.ask(audio, editing)
+        return server.voice.ask(audio, editing, fixedKind())
     }
+
+    private fun fixedKind(): ScheduleKind? = if (mode == VoiceMode.ALARM) ScheduleKind.ALARM else null
 
     private suspend fun save(draft: Schedule) {
         val e = editing
@@ -172,7 +181,11 @@ class VoiceViewModel(
 
     private fun doneText(d: Schedule): String {
         val whenText = "${d.date.koreanDate()} ${d.time?.koreanTime() ?: ""}".trim()
-        return if (editing == null) "넣었어요. $whenText ${d.title}, 때가 되면 미리 알려 드릴게요." else "바꿨어요. $whenText ${d.title}이에요."
+        return when {
+            editing != null -> "바꿨어요. $whenText ${d.title}이에요."
+            d.kind == ScheduleKind.ALARM -> "알람을 맞췄어요. $whenText ${d.title}, 그 시간에 알람으로 알려 드릴게요."
+            else -> "넣었어요. $whenText ${d.title}, 때가 되면 미리 알려 드릴게요."
+        }
     }
 
     /**
@@ -214,6 +227,7 @@ class VoiceViewModel(
         VoiceMode.TALK -> VoiceMessage.Bot("무엇을 도와드릴까요?", example = "\"내일 3시에 병원 가야 해\", \"병원 언제였지?\"")
         VoiceMode.WRITE -> VoiceMessage.Bot("언제, 무슨 일이 있으세요?", example = "\"모레 11시에 치과 가야 해\"")
         VoiceMode.EDIT -> VoiceMessage.Bot("어떻게 바꿀까요?", example = "\"3시로 바꿔 줘\"")
+        VoiceMode.ALARM -> VoiceMessage.Bot("언제, 무엇을 알려 드릴까요?", example = "\"30분 뒤에 약 먹으라고 알려 줘\"")
     }
 
     private companion object {

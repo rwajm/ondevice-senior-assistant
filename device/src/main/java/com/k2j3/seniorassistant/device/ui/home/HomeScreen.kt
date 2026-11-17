@@ -53,7 +53,7 @@ import java.time.LocalDateTime
 /** 메인 화면에서 갈 수 있는 곳 */
 data class HomeActions(
     val openTodo: () -> Unit = {},
-    val openWrite: () -> Unit = {},
+    val openAlarms: () -> Unit = {},
     val openDocument: () -> Unit = {},
     val openVoice: () -> Unit = {},
     val openSettings: () -> Unit = {},
@@ -98,7 +98,7 @@ fun HomeScreen(state: HomeUiState, actions: HomeActions) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 MainTile("할 일 보기", "오늘 · 내일 · 앞으로", AppIcons.Calendar, AppColor.TileGreen, AppColor.IconGreen, actions.openTodo)
-                MainTile("할 일 직접 적기", "할 일을 직접 넣어요", AppIcons.Pencil, AppColor.TileYellow, AppColor.IconYellow, actions.openWrite)
+                MainTile("알람 확인하기", "맞춘 알람을 보고 고쳐요", AppIcons.Bell, AppColor.TileYellow, AppColor.IconYellow, actions.openAlarms)
                 MainTile("문서 읽기", "안내문을 대신 읽어 드려요", AppIcons.Document, AppColor.TileBlue, AppColor.IconBlue, actions.openDocument)
             }
             Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(24.dp)) {

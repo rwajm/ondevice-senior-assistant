@@ -253,6 +253,24 @@ class BoardApiServerTest {
     }
 
     @Test
+    fun voiceEditKeepsAlarmOrCalendarEvenWhenTheModelIsUnsure() = runTest {
+        server.start(backgroundScope)
+        val alarm = Schedule(id = 8, title = "약", date = tomorrow, time = LocalTime.of(9, 0), kind = ScheduleKind.ALARM)
+        llm.output = set(time = "오전 11시", title = "", type = -1) // "11시로 바꿔 줘"
+        val draft = (server.voice.ask(ByteArray(0), alarm) as VoiceAnswer.Draft).draft
+        assertEquals(alarm.copy(time = LocalTime.of(11, 0)), draft)
+    }
+
+    @Test
+    fun theAlarmScreenAlwaysMakesAnAlarm() = runTest {
+        server.start(backgroundScope)
+        llm.output = set(date = "내일", time = "오후 7시", title = "약 먹기", type = 1)
+        val draft = (server.voice.ask(ByteArray(0), kind = ScheduleKind.ALARM) as VoiceAnswer.Draft)
+        assertEquals(ScheduleKind.ALARM, draft.draft.kind)
+        assertTrue(draft.text, draft.text.startsWith("이렇게 알람을 맞출까요?"))
+    }
+
+    @Test
     fun unclearOrInvalidOutputAsksAgain() = runTest {
         server.start(backgroundScope)
         llm.output = query(type = -1)

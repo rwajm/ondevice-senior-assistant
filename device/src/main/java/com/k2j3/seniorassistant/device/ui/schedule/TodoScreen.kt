@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,19 +38,24 @@ import com.k2j3.seniorassistant.device.ui.common.koreanDate
 import java.time.LocalDate
 
 @Composable
-fun TodoRoute(viewModel: TodoViewModel, onBack: () -> Unit, onOtherDate: () -> Unit, onEdit: (Long) -> Unit) {
+fun TodoRoute(viewModel: TodoViewModel, onBack: () -> Unit, onOtherDate: () -> Unit, onWrite: () -> Unit, onEdit: (Long) -> Unit) {
     LaunchedEffect(Unit) { viewModel.refresh() }
     val state by viewModel.uiState.collectAsState()
-    TodoScreen(state, onBack, onOtherDate, onEdit)
+    TodoScreen(state, onBack, onOtherDate, onWrite, onEdit)
 }
 
-/** 할 일 보기: 오늘과 내일을 나란히 */
+/** 할 일 보기: 오늘과 내일을 나란히. 오른쪽 위 직접 적기 · 다른 날짜 */
 @Composable
-fun TodoScreen(state: TodoUiState, onBack: () -> Unit, onOtherDate: () -> Unit, onEdit: (Long) -> Unit) {
+fun TodoScreen(state: TodoUiState, onBack: () -> Unit, onOtherDate: () -> Unit, onWrite: () -> Unit, onEdit: (Long) -> Unit) {
     AppScreen(
         title = "할 일 보기",
         onBack = onBack,
         trailing = {
+            PillButton(
+                "직접 적기", onWrite, leading = AppIcons.Pencil,
+                container = AppColor.TileYellow, border = AppColor.IconYellow, content = AppColor.IconYellow,
+            )
+            Spacer(Modifier.width(16.dp))
             PillButton(
                 "다른 날짜", onOtherDate, trailing = AppIcons.Forward,
                 container = AppColor.GreenSoft, border = AppColor.Green, content = AppColor.Green,
@@ -99,5 +105,5 @@ private fun DayColumn(
 @Composable
 private fun TodoPreview() {
     val today = LocalDate.of(2026, 11, 13)
-    SeniorAssistantTheme { TodoScreen(TodoUiState(today, sampleSchedules(today), emptyList()), {}, {}, {}) }
+    SeniorAssistantTheme { TodoScreen(TodoUiState(today, sampleSchedules(today), emptyList()), {}, {}, {}, {}) }
 }

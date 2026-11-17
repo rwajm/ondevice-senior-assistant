@@ -20,6 +20,9 @@ object AppColor {
     val GreenSoft = Color(0xFFDCF2E3)
     val Red = Color(0xFFB91C1C)
     val RedSoft = Color(0xFFFDECEC)
+    // 알람 (일정의 초록과 구분되게 주황)
+    val Amber = Color(0xFFB45309)
+    val AmberSoft = Color(0xFFFEF3C7)
 
     // 메인 버튼 바탕
     val TileGreen = Color(0xFFCCEFD6)

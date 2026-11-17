@@ -2,6 +2,7 @@ package com.k2j3.seniorassistant.device.server
 
 import com.k2j3.seniorassistant.device.ai.document.DocumentFields
 import com.k2j3.seniorassistant.device.data.schedule.Schedule
+import com.k2j3.seniorassistant.device.data.schedule.ScheduleKind
 import java.time.LocalDate
 import java.time.LocalTime
 import org.junit.Assert.assertEquals
@@ -33,6 +34,15 @@ class SentencesTest {
         assertEquals("오늘 오후 12시, 점심 일정이 있어요.", Sentences.found(listOf(noon), today))
         assertEquals("모레 오전 12시, 약 일정이 있어요.", Sentences.found(listOf(midnight), today))
         assertEquals("11월 3일, 노인정 일정이 있어요.", Sentences.found(listOf(later), today))
+    }
+
+    @Test
+    fun anAlarmSaysItIsAnAlarm() {
+        val pill = Schedule(title = "약 복용", date = today, time = LocalTime.of(16, 30), kind = ScheduleKind.ALARM)
+        val health = Schedule(title = "헬스", date = today.plusDays(1), time = LocalTime.of(19, 0))
+        assertEquals("이렇게 알람을 맞출까요? 오늘 오후 4시 30분, 약 복용 알람이에요.", Sentences.draft(pill, today))
+        assertEquals("이렇게 적을까요? 내일 오후 7시, 헬스 일정이에요.", Sentences.draft(health, today))
+        assertEquals("오늘 오후 4시 30분, 약 복용 알람이 있어요.", Sentences.found(listOf(pill), today))
     }
 
     @Test

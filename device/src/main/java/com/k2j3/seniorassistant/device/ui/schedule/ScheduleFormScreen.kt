@@ -82,21 +82,26 @@ fun ScheduleFormRoute(viewModel: ScheduleFormViewModel, onBack: () -> Unit, onVo
     )
 }
 
-/** 할 일 적기 / 할 일 고치기 (같은 칸, 제목과 버튼만 다름) */
+/** 할 일 적기 / 할 일 고치기 (같은 칸, 제목과 버튼만 다름). 알람이면 언제·무엇만 */
 @Composable
 fun ScheduleFormScreen(state: ScheduleFormUiState, actions: FormActions) {
     val edit = state.mode == FormMode.EDIT
+    val thing = if (state.alarm) "알람" else "할 일"
     val focus = LocalFocusManager.current
     // 창이 떠 있을 때 기기의 뒤로 가기는 창만 닫는다
     BackHandler(enabled = state.dialog != FormDialog.NONE) { actions.onCloseDialog() }
     val save = { focus.clearFocus(); actions.onSave() }
     Box(Modifier.fillMaxSize()) {
         AppScreen(
-            title = if (edit) "할 일 고치기" else "할 일 적기",
+            title = when {
+                edit -> "$thing 고치기"
+                state.alarm -> "알람 맞추기"
+                else -> "할 일 적기"
+            },
             onBack = actions.onBack,
             trailing = {
                 if (edit) PillButton(
-                    "할 일 지우기", actions.onAskDelete, leading = AppIcons.Trash,
+                    "$thing 지우기", actions.onAskDelete, leading = AppIcons.Trash,
                     container = AppColor.RedSoft, border = AppColor.Red, content = AppColor.Red,
                 )
             },
@@ -104,7 +109,7 @@ fun ScheduleFormScreen(state: ScheduleFormUiState, actions: FormActions) {
             AppCard(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxSize().padding(start = 48.dp, end = 48.dp, top = 28.dp, bottom = 32.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
                     Fields(state, actions, Modifier.weight(1f).fillMaxHeight())
-                    SideButtons(edit, actions.copy(onSave = save), Modifier.width(320.dp).fillMaxHeight())
+                    SideButtons(edit, state.alarm, actions.copy(onSave = save), Modifier.width(320.dp).fillMaxHeight())
                 }
             }
         }
@@ -147,9 +152,18 @@ private fun Fields(state: ScheduleFormUiState, actions: FormActions, modifier: M
         FieldRow("무엇", Modifier.weight(1f)) {
             AppTextField(
                 f.title, { v -> change { it.copy(title = v) } },
-                if (state.titleMissing) "무엇을 하는지 적어 주세요" else "예) 치과 가기",
-                Modifier.fillMaxWidth(), isError = state.titleMissing,
+                when {
+                    state.titleMissing && state.alarm -> "무엇을 알려 드릴지 적어 주세요"
+                    state.titleMissing -> "무엇을 하는지 적어 주세요"
+                    state.alarm -> "예) 약 먹기"
+                    else -> "예) 치과 가기"
+                },
+                Modifier.fillMaxWidth(), isError = state.titleMissing, last = state.alarm,
             )
+        }
+        if (state.alarm) { // 알람은 언제·무엇만: 남는 자리는 비워 둔다
+            Box(Modifier.weight(2f))
+            return@Column
         }
         Divider()
         FieldRow("어디서", Modifier.weight(1f)) {
@@ -174,9 +188,14 @@ private fun FieldRow(label: String, modifier: Modifier, content: @Composable () 
 private fun Divider() = Box(Modifier.fillMaxWidth().height(1.dp).background(AppColor.Border))
 
 @Composable
-private fun SideButtons(edit: Boolean, actions: FormActions, modifier: Modifier) {
+private fun SideButtons(edit: Boolean, alarm: Boolean, actions: FormActions, modifier: Modifier) {
     Column(modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-        BigSideButton(if (edit) "말로 고치기" else "말로 적기", AppColor.BlueSoft, AppColor.Blue, actions.onVoice)
+        val voice = when {
+            edit -> "말로 고치기"
+            alarm -> "말로 맞추기"
+            else -> "말로 적기"
+        }
+        BigSideButton(voice, AppColor.BlueSoft, AppColor.Blue, actions.onVoice)
         Canvas(Modifier.fillMaxWidth().height(2.dp)) {
             drawLine(AppColor.Border, Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = size.height, pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 10f)))
         }
@@ -193,18 +212,21 @@ private fun ColumnScope.BigSideButton(text: String, container: Color, content: C
     ) { Text(text, style = Label, color = content) }
 }
 
-private fun ScheduleForm.summary() = listOf(
-    "언제" to "${date.koreanDate()} ${time.koreanTime()}",
-    "무엇" to title,
-    "어디서" to place,
-    "챙길것" to items,
-)
+private fun ScheduleFormUiState.summary() = listOf(
+    "언제" to "${form.date.koreanDate()} ${form.time.koreanTime()}",
+    "무엇" to form.title,
+) + if (alarm) emptyList() else listOf("어디서" to form.place, "챙길것" to form.items)
 
 @Composable
 private fun SavedDialog(state: ScheduleFormUiState, actions: FormActions) {
-    val title = if (state.mode == FormMode.EDIT) "할 일을 고쳤어요" else "할 일에 넣었어요"
+    val title = when {
+        state.mode == FormMode.EDIT && state.alarm -> "알람을 고쳤어요"
+        state.mode == FormMode.EDIT -> "할 일을 고쳤어요"
+        state.alarm -> "알람을 맞췄어요"
+        else -> "할 일에 넣었어요"
+    }
     AppDialog(buildAnnotatedString { append(title) }, watermark = AppIcons.CheckCircle, watermarkColor = AppColor.Green) {
-        SummaryTable(state.form.summary(), AppColor.Green)
+        SummaryTable(state.summary(), AppColor.Green)
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             DialogButton("고치기", actions.onCloseDialog, Modifier.weight(1f), icon = AppIcons.PencilSmall)
             DialogButton("확인했어요", actions.onDone, Modifier.weight(1f), container = AppColor.Green, content = Color.White, bordered = false)
@@ -216,12 +238,12 @@ private fun SavedDialog(state: ScheduleFormUiState, actions: FormActions) {
 private fun DeleteDialog(state: ScheduleFormUiState, actions: FormActions) {
     AppDialog(
         buildAnnotatedString {
-            append("이 할 일을 ")
+            append(if (state.alarm) "이 알람을 " else "이 할 일을 ")
             withStyle(SpanStyle(color = AppColor.Red)) { append("지울까요?") }
         },
         watermark = AppIcons.TrashOpen, watermarkColor = AppColor.Red,
     ) {
-        SummaryTable(state.form.summary(), AppColor.Red)
+        SummaryTable(state.summary(), AppColor.Red)
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             DialogButton("아니요", actions.onCloseDialog, Modifier.weight(1f))
             DialogButton("지울게요", actions.onDelete, Modifier.weight(1f), container = AppColor.Red, content = Color.White, bordered = false)
@@ -235,6 +257,12 @@ private val sampleForm = ScheduleForm(2026, 11, 13, pm = true, hour12 = 2, title
 @Composable
 private fun WritePreview() = SeniorAssistantTheme {
     ScheduleFormScreen(ScheduleFormUiState(FormMode.WRITE, ScheduleForm.from(LocalDate.of(2026, 11, 13))), FormActions())
+}
+
+@Preview(widthDp = 1280, heightDp = 720)
+@Composable
+private fun AlarmWritePreview() = SeniorAssistantTheme {
+    ScheduleFormScreen(ScheduleFormUiState(FormMode.WRITE, sampleForm.copy(title = "약 먹기", place = "", items = ""), alarm = true), FormActions())
 }
 
 @Preview(widthDp = 1280, heightDp = 720)

@@ -3,9 +3,11 @@ package com.k2j3.seniorassistant.device.ui.schedule
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.k2j3.seniorassistant.device.data.schedule.Schedule
+import com.k2j3.seniorassistant.device.data.schedule.ScheduleKind
 import com.k2j3.seniorassistant.device.data.schedule.ScheduleWithReminders
 import com.k2j3.seniorassistant.device.server.ScheduleApi
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +43,13 @@ data class ScheduleForm(
 
     companion object {
         fun from(date: LocalDate) = ScheduleForm(date.year, date.monthValue, date.dayOfMonth)
+
+        /** 새 알람의 처음 값: 지금부터 한 시간 뒤 (5분 단위로 맞춤) */
+        fun inAnHour(now: LocalDateTime = LocalDateTime.now()): ScheduleForm {
+            val t = now.plusHours(1).withSecond(0).withNano(0).let { it.withMinute(it.minute - it.minute % 5) }
+            val h = t.hour % 12
+            return ScheduleForm(t.year, t.monthValue, t.dayOfMonth, pm = t.hour >= 12, hour12 = if (h == 0) 12 else h, minute = t.minute)
+        }
         fun from(s: Schedule): ScheduleForm {
             val t = s.time ?: LocalTime.of(9, 0)
             val h = t.hour % 12
@@ -61,6 +70,8 @@ enum class FormDialog { NONE, SAVED, DELETE }
 data class ScheduleFormUiState(
     val mode: FormMode,
     val form: ScheduleForm,
+    /** 알람 맞추기·고치기: 언제·무엇만 받고, 그 시각에 한 번 울린다 (FR-07) */
+    val alarm: Boolean = false,
     val titleMissing: Boolean = false,
     val dialog: FormDialog = FormDialog.NONE,
 )
@@ -78,13 +89,16 @@ class ScheduleFormViewModel(private val schedules: ScheduleApi) : ViewModel() {
     private var savedId: Long? = null
     private var saving = false
 
-    /** 적기: 날짜(와 문서 읽기처럼 미리 채울 내용), 고치기: 일정 번호 */
-    fun start(mode: FormMode, date: LocalDate = LocalDate.now(), editId: Long? = null, prefill: Schedule? = null) {
+    /** 적기: 날짜(와 문서 읽기처럼 미리 채울 내용), alarm이면 알람 맞추기. 고치기: 일정 번호 (알람인지는 저장된 것을 따른다) */
+    fun start(mode: FormMode, date: LocalDate = LocalDate.now(), editId: Long? = null, prefill: Schedule? = null, alarm: Boolean = false) {
         original = null; savedId = null; saving = false
-        state.value = ScheduleFormUiState(mode, prefill?.let { ScheduleForm.from(it) } ?: ScheduleForm.from(date))
+        val form = prefill?.let { ScheduleForm.from(it) } ?: if (alarm) ScheduleForm.inAnHour() else ScheduleForm.from(date)
+        state.value = ScheduleFormUiState(mode, form, alarm = alarm)
         if (editId != null) viewModelScope.launch {
             original = schedules.getSchedule(editId)
-            original?.let { o -> state.update { it.copy(form = ScheduleForm.from(o.schedule)) } }
+            original?.let { o ->
+                state.update { it.copy(form = ScheduleForm.from(o.schedule), alarm = o.schedule.kind == ScheduleKind.ALARM) }
+            }
         }
     }
 
@@ -114,7 +128,10 @@ class ScheduleFormViewModel(private val schedules: ScheduleApi) : ViewModel() {
                     val again = schedules.getSchedule(id)
                     if (again != null) schedules.updateSchedule(fields(again.schedule), again.reminders.map { it.remindBefore })
                 }
-                else -> savedId = schedules.addSchedule(fields(Schedule(title = "", date = f.date)))
+                else -> {
+                    val kind = if (state.value.alarm) ScheduleKind.ALARM else ScheduleKind.CALENDAR
+                    savedId = schedules.addSchedule(fields(Schedule(title = "", date = f.date, kind = kind)))
+                }
             }
             state.update { it.copy(dialog = FormDialog.SAVED) }
             saving = false
