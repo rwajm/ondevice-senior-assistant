@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 /** 문서 읽기 단계 */
 sealed interface DocumentStep {
     data object Choose : DocumentStep
+    data object Camera : DocumentStep
     data class Reading(val image: ByteArray) : DocumentStep
     data class Result(
         val fields: DocumentFields,
@@ -29,7 +30,7 @@ sealed interface DocumentStep {
         val audio: ByteArray? = null,
     ) : DocumentStep
     /** retakePhoto: 글자를 못 찾음(다른 파일 고르기) / 아니면 지금은 읽을 수 없음(다시 해 보기·직접 적기) */
-    data class Error(val message: String, val retakePhoto: Boolean) : DocumentStep
+    data class Error(val message: String, val retakePhoto: Boolean, val hint: String? = null) : DocumentStep
 }
 
 enum class DocumentDialog { NONE, CONSENT, PHONE_GUIDE, SAVED }
@@ -39,6 +40,8 @@ data class DocumentUiState(
     val dialog: DocumentDialog = DocumentDialog.NONE,
     /** 동의를 받은 뒤 사진 선택 창을 열어야 할 때 true (화면이 열고 나서 pickerOpened()를 부른다) */
     val openPicker: Boolean = false,
+    /** 카메라 권한을 물어봐야 할 때 true (화면이 요청한 뒤 cameraOpened()를 부른다) */
+    val openCamera: Boolean = false,
 )
 
 /**
@@ -72,6 +75,34 @@ class DocumentViewModel(
     }
 
     fun pickerOpened() = state.update { it.copy(openPicker = false) }
+
+    /** 웹캠 촬영: 권한은 화면에서 요청하고, 허용되면 [cameraPermission]이 카메라 화면을 연다. */
+    fun pickCamera() = state.update { it.copy(openCamera = true) }
+
+    fun cameraOpened() = state.update { it.copy(openCamera = false) }
+
+    fun cameraPermission(granted: Boolean) {
+        state.update {
+            if (granted) it.copy(step = DocumentStep.Camera)
+            else it.copy(
+                step = DocumentStep.Error(
+                    "카메라를 사용할 수 없어요. 권한을 허용하거나 파일을 골라 주세요.",
+                    retakePhoto = true,
+                    hint = "설정에서 카메라 권한을 허용한 뒤 다시 시도해 주세요.",
+                ),
+            )
+        }
+    }
+
+    fun cameraFailed() = state.update {
+        it.copy(
+            step = DocumentStep.Error(
+                "카메라를 열지 못했어요. 다른 카메라를 연결하거나 파일을 골라 주세요.",
+                retakePhoto = true,
+                hint = "웹캠이 연결되어 있는지 확인해 주세요.",
+            ),
+        )
+    }
 
     /** 사진을 골랐을 때 */
     fun onImage(image: ByteArray) {

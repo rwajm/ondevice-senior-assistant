@@ -89,6 +89,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.room.runtime)
+    implementation(libs.droiduvc)
     ksp(libs.androidx.room.compiler)
     // STT (SenseVoice), VAD (Silero), TTS (VITS) on the CPU. Not on Maven; the AAR is the official
     // GitHub release asset: k2-fsa/sherpa-onnx v1.13.8, sha256 633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96

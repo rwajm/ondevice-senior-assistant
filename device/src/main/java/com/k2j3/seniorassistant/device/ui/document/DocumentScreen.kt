@@ -1,5 +1,7 @@
 package com.k2j3.seniorassistant.device.ui.document
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -44,6 +46,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.ContextCompat
 import com.k2j3.seniorassistant.device.ai.document.DocumentField
 import com.k2j3.seniorassistant.device.ai.document.DocumentFields
 import com.k2j3.seniorassistant.device.ui.theme.DialogButton
@@ -65,12 +68,15 @@ import java.time.LocalTime
 data class DocumentActions(
     val onBack: () -> Unit = {},
     val onPickFile: () -> Unit = {},
+    val onPickCamera: () -> Unit = {},
     val onPhoneGuide: () -> Unit = {},
     val onConsent: (Boolean) -> Unit = {},
     val onRetry: () -> Unit = {},
     val onEdit: (DocumentFields) -> Unit = {},
     val onAdd: () -> Unit = {},
     val onListen: () -> Unit = {},
+    val onImage: (ByteArray) -> Unit = {},
+    val onCameraFailed: () -> Unit = {},
     val onWriteManually: () -> Unit = {},
     val onCloseDialog: () -> Unit = {},
     val onDone: () -> Unit = {},
@@ -80,6 +86,9 @@ data class DocumentActions(
 fun DocumentRoute(viewModel: DocumentViewModel, onExit: () -> Unit, onEdit: (DocumentFields) -> Unit, onWriteManually: () -> Unit, onDone: () -> Unit) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        viewModel.cameraPermission(granted)
+    }
     // USB·기기 안의 사진 고르기 (안드로이드 사진 선택 창, 한 장만: 누르면 바로 닫힘)
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -90,18 +99,28 @@ fun DocumentRoute(viewModel: DocumentViewModel, onExit: () -> Unit, onEdit: (Doc
     LaunchedEffect(state.openPicker) {
         if (state.openPicker) { viewModel.pickerOpened(); picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
     }
+    LaunchedEffect(state.openCamera) {
+        if (state.openCamera) {
+            viewModel.cameraOpened()
+            val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            if (granted) viewModel.cameraPermission(true) else cameraPermission.launch(Manifest.permission.CAMERA)
+        }
+    }
     BackHandler { viewModel.back(onExit) }
     DocumentScreen(
         state,
         DocumentActions(
             onBack = { viewModel.back(onExit) },
             onPickFile = viewModel::pickFile,
+            onPickCamera = viewModel::pickCamera,
             onPhoneGuide = viewModel::showPhoneGuide,
             onConsent = { agree -> viewModel.consent(agree, onWriteManually) },
             onRetry = viewModel::retry,
             onEdit = onEdit,
             onAdd = viewModel::addToSchedule,
             onListen = viewModel::replayResult,
+            onImage = viewModel::onImage,
+            onCameraFailed = viewModel::cameraFailed,
             onWriteManually = onWriteManually,
             onCloseDialog = viewModel::closeDialog,
             onDone = onDone,
@@ -114,6 +133,7 @@ fun DocumentScreen(state: DocumentUiState, actions: DocumentActions) {
     Box(Modifier.fillMaxSize()) {
         when (val step = state.step) {
             DocumentStep.Choose -> ChooseStep(actions)
+            DocumentStep.Camera -> CameraStep(actions)
             is DocumentStep.Reading -> ReadingStep(step.image, actions)
             is DocumentStep.Result -> ResultStep(step, actions)
             is DocumentStep.Error -> ErrorStep(step, actions)
@@ -134,7 +154,8 @@ private fun ChooseStep(actions: DocumentActions) {
     AppScreen(title = "문서 읽기", onBack = actions.onBack) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             ChooseCard(AppIcons.Folder, "파일에서 고르기", "USB에 담긴 사진·파일", Modifier.weight(1f), actions.onPickFile)
-            ChooseCard(AppIcons.Phone, "휴대폰으로 보내기", "휴대폰으로 찍은 사진·캡처", Modifier.weight(1f), actions.onPhoneGuide)
+            ChooseCard(AppIcons.Camera, "카메라로 찍기", "연결한 웹캠으로 촬영", Modifier.weight(1f), actions.onPickCamera)
+            ChooseCard(AppIcons.Phone, "휴대폰 사진", "휴대폰으로 찍은 사진·캡처", Modifier.weight(1f), actions.onPhoneGuide)
         }
     }
 }
@@ -287,7 +308,7 @@ private fun ErrorStep(error: DocumentStep.Error, actions: DocumentActions) {
                 Icon(AppIcons.Warning, null, Modifier.size(96.dp), tint = AppColor.IconYellow)
                 Text(error.message.keepAll(), style = AppType.ScreenTitle.copy(fontSize = 44.sp), textAlign = TextAlign.Center)
                 Text(
-                    if (readable) "밝은 곳에서 글자가 잘 보이는 사진으로 다시 골라 주세요." else "할 일은 직접 적을 수 있어요.",
+                    error.hint ?: if (readable) "밝은 곳에서 글자가 잘 보이는 사진으로 다시 골라 주세요." else "할 일은 직접 적을 수 있어요.",
                     style = AppType.Body.copy(fontWeight = FontWeight.Medium), color = AppColor.TextSub, textAlign = TextAlign.Center,
                 )
                 Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
