@@ -144,7 +144,7 @@ private fun Fields(state: ScheduleFormUiState, actions: FormActions, modifier: M
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     AppSegment("오전", "오후", f.pm, { pm -> change { it.copy(pm = pm) } }, Modifier.width(200.dp))
                     AppSelect(f.hour12, (1..12).toList(), { "${it}시" }, { h -> change { it.copy(hour12 = h) } }, Modifier.weight(1f))
-                    AppSelect(f.minute, (0..55 step 5).toList(), { "%02d분".format(it) }, { m -> change { it.copy(minute = m) } }, Modifier.weight(1f))
+                    AppSelect(f.minute, (0..59).toList(), { "%02d분".format(it) }, { m -> change { it.copy(minute = m) } }, Modifier.weight(1f))
                 }
             }
         }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -23,7 +24,9 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -32,11 +35,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.first
 
 private val FieldText = AppType.Body
 private val FieldFill = Color(0xFFF9FAFB)
 private val Placeholder = Color(0xFF6B7280)
+private val SelectItemHeight = 64.dp
 
 /** 글자 입력 칸. 비어 있으면 예시를 회색으로, 꼭 적어야 하는데 비었으면 빨간색으로 보여 준다. */
 @Composable
@@ -84,6 +90,15 @@ fun <T> AppSelect(
     modifier: Modifier = Modifier,
 ) {
     var open by remember { mutableStateOf(false) }
+    val scroll = rememberScrollState()
+    val itemPx = with(LocalDensity.current) { SelectItemHeight.roundToPx() }
+    LaunchedEffect(open) { // 펼치면 고른 값이 위에서 두 번째 줄쯤 보이게 (분 목록은 60개)
+        if (!open) return@LaunchedEffect
+        val index = options.indexOf(selected)
+        if (index <= 1) return@LaunchedEffect
+        snapshotFlow { scroll.maxValue }.first { it > 0 }
+        scroll.scrollTo((index - 1) * itemPx)
+    }
     Box(modifier) {
         Row(
             Modifier
@@ -99,12 +114,15 @@ fun <T> AppSelect(
             Text(label(selected), style = FieldText, modifier = Modifier.weight(1f))
             Icon(AppIcons.ChevronDown, null, Modifier.size(30.dp), tint = AppColor.Text)
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.heightIn(max = 480.dp).background(AppColor.Card)) {
+        DropdownMenu(
+            expanded = open, onDismissRequest = { open = false },
+            modifier = Modifier.heightIn(max = 480.dp).background(AppColor.Card), scrollState = scroll,
+        ) {
             options.forEach { option ->
                 DropdownMenuItem(
                     text = { Text(label(option), style = FieldText, color = if (option == selected) AppColor.Green else AppColor.Text) },
                     onClick = { onSelect(option); open = false },
-                    modifier = Modifier.height(64.dp),
+                    modifier = Modifier.height(SelectItemHeight),
                 )
             }
         }

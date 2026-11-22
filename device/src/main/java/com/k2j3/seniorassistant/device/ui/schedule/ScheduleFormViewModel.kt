@@ -55,7 +55,7 @@ data class ScheduleForm(
             val h = t.hour % 12
             return ScheduleForm(
                 s.date.year, s.date.monthValue, s.date.dayOfMonth,
-                pm = t.hour >= 12, hour12 = if (h == 0) 12 else h, minute = t.minute - t.minute % 5,
+                pm = t.hour >= 12, hour12 = if (h == 0) 12 else h, minute = t.minute,
                 title = s.title, place = s.place, items = s.items.joinItems(),
             )
         }
