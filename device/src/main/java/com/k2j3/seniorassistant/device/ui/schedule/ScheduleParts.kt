@@ -96,15 +96,15 @@ fun ScheduleRow(schedule: Schedule, onEdit: () -> Unit) {
     }
 }
 
-/** 할 일이 없는 날 */
+/** 할 일이 없는 날 (알람 화면은 종 그림) */
 @Composable
-fun ColumnScope.EmptySchedule(text: String) {
+fun ColumnScope.EmptySchedule(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector = AppIcons.Calendar) {
     Column(
         Modifier.fillMaxWidth().weight(1f),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
     ) {
-        Icon(AppIcons.Calendar, null, Modifier.size(72.dp), tint = AppColor.TextQuietBorder)
+        Icon(icon, null, Modifier.size(72.dp), tint = AppColor.TextQuietBorder)
         Text(text, style = AppType.TileTitle, color = AppColor.TextSub)
     }
 }

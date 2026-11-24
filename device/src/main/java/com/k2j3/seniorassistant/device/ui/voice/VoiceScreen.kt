@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -56,6 +57,7 @@ import com.k2j3.seniorassistant.device.ui.theme.AppType
 import com.k2j3.seniorassistant.device.ui.theme.PillButton
 import com.k2j3.seniorassistant.device.ui.theme.keepAll
 import com.k2j3.seniorassistant.device.data.schedule.Schedule
+import com.k2j3.seniorassistant.device.data.schedule.ScheduleKind
 import com.k2j3.seniorassistant.device.ui.common.koreanDate
 import com.k2j3.seniorassistant.device.ui.common.koreanTime
 import java.time.LocalDate
@@ -63,11 +65,11 @@ import java.time.LocalTime
 import kotlinx.coroutines.delay
 
 @Composable
-fun VoiceRoute(viewModel: VoiceViewModel, userName: String, onStop: () -> Unit, onSaved: (LocalDate) -> Unit) {
+fun VoiceRoute(viewModel: VoiceViewModel, userName: String, onStop: () -> Unit, onSaved: (LocalDate, Boolean) -> Unit) {
     val state by viewModel.uiState.collectAsState()
-    // 저장했으면 안내 문장을 잠깐 보여 준 뒤 그 날의 달력으로
+    // 저장했으면 안내 문장을 잠깐 보여 준 뒤 그 날의 달력(알람이면 알람 화면)으로
     LaunchedEffect(state.savedDate) {
-        state.savedDate?.let { delay(2_500); onSaved(it) }
+        state.savedDate?.let { delay(2_500); onSaved(it, state.savedAlarm) }
     }
     VoiceScreen(state, userName, onStop, viewModel::again)
 }
@@ -81,18 +83,23 @@ fun VoiceScreen(state: VoiceUiState, userName: String, onStop: () -> Unit, onAga
     ) {
         AppCard(Modifier.weight(1f).fillMaxHeight()) {
             Box(Modifier.fillMaxSize()) {
+                val list = rememberLazyListState()
                 LazyColumn(
                     Modifier.fillMaxSize().padding(horizontal = 36.dp),
+                    state = list,
                     reverseLayout = true,
                     verticalArrangement = Arrangement.spacedBy(22.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 32.dp),
                 ) {
                     items(state.messages.reversed()) { Bubble(it, userName) }
                 }
-                Box(
-                    Modifier.fillMaxWidth().height(120.dp)
-                        .background(Brush.verticalGradient(0.35f to AppColor.Card, 1f to AppColor.Card.copy(alpha = 0f))),
-                )
+                // 위로 밀려난 지난 말만 흐리게: 말이 적어 스크롤할 것이 없으면 첫 말풍선('도우미')을 가리지 않는다
+                if (list.canScrollForward) {
+                    Box(
+                        Modifier.fillMaxWidth().height(120.dp)
+                            .background(Brush.verticalGradient(0.35f to AppColor.Card, 1f to AppColor.Card.copy(alpha = 0f))),
+                    )
+                }
             }
         }
         Column(Modifier.width(280.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(24.dp)) {
@@ -128,15 +135,18 @@ private fun Bubble(m: VoiceMessage, userName: String) {
                 color = if (m.isError) AppColor.Red else AppColor.Text,
             )
             if (m.example != null) {
-                Text("예를 들면 \"${m.example}\"".keepAll(), style = AppType.Hint.copy(fontWeight = FontWeight.Bold), color = AppColor.TextQuiet, modifier = Modifier.padding(top = 6.dp))
+                Text("예를 들면 ${m.example}".keepAll(), style = AppType.Hint.copy(fontWeight = FontWeight.Bold), color = AppColor.TextQuiet, modifier = Modifier.padding(top = 6.dp))
             }
         }
         is VoiceMessage.Thinking -> BotBubble { ThinkingDots() }
         is VoiceMessage.Draft -> BotBubble {
+            val alarm = m.draft.kind == ScheduleKind.ALARM
             Text(m.title, style = BubbleText)
+            KindBadge(alarm, Modifier.padding(top = 14.dp))
             Column(
-                Modifier.padding(top = 14.dp).clip(RoundedCornerShape(14.dp)).background(AppColor.Card)
-                    .border(2.dp, AppColor.Border, RoundedCornerShape(14.dp)).padding(horizontal = 22.dp, vertical = 14.dp),
+                Modifier.padding(top = 10.dp).clip(RoundedCornerShape(14.dp)).background(if (alarm) AppColor.AmberSoft else AppColor.Card)
+                    .border(if (alarm) 3.dp else 2.dp, if (alarm) AppColor.Amber else AppColor.Border, RoundedCornerShape(14.dp))
+                    .padding(horizontal = 22.dp, vertical = 14.dp),
             ) { DraftRows(m.draft, m.original) }
             Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("맞으면 ", style = AppType.Hint.copy(fontWeight = FontWeight.Bold), color = AppColor.TextQuiet)
@@ -161,6 +171,24 @@ private fun Bubble(m: VoiceMessage, userName: String) {
 }
 
 private val RowText = BubbleText.copy(fontSize = 28.sp)
+
+/** 초안이 알람인지 일정인지: 알람은 그 시각에 울리고, 일정은 미리 알려 준다 */
+@Composable
+private fun KindBadge(alarm: Boolean, modifier: Modifier = Modifier) {
+    val fg = if (alarm) AppColor.Amber else AppColor.Green
+    Row(
+        modifier.clip(RoundedCornerShape(999.dp)).background(if (alarm) AppColor.AmberSoft else AppColor.GreenSoft)
+            .padding(start = 12.dp, end = 18.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(if (alarm) AppIcons.Bell else AppIcons.Calendar, null, Modifier.size(28.dp), tint = fg)
+        Text(
+            if (alarm) "알람 · 그 시간에 울려요" else "일정 · 미리 알려 드려요",
+            style = AppType.Hint.copy(fontWeight = FontWeight.ExtraBold), color = fg,
+        )
+    }
+}
 
 /** 초안 표: 넣기는 언제·무엇(·어디서·챙길것), 고치기는 할 일·언제(바뀐 시간) */
 @Composable
@@ -241,7 +269,7 @@ private fun StatusPanel(state: VoiceUiState, onAgain: () -> Unit) {
         }
         when {
             state.finished -> {
-                val more = when (state.mode) { VoiceMode.ASK -> "또 물어보기"; VoiceMode.WRITE -> "또 넣기"; VoiceMode.EDIT -> "또 고치기" }
+                val more = when (state.mode) { VoiceMode.TALK -> "또 말하기"; VoiceMode.ALARM -> "또 맞추기"; VoiceMode.WRITE -> "또 넣기"; VoiceMode.EDIT -> "또 고치기" }
                 Column(
                     Modifier.clip(RoundedCornerShape(20.dp)).clickable(onClick = onAgain).padding(8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -287,9 +315,21 @@ private val sampleHospital = Schedule(2, "병원 진료", java.time.LocalDate.of
 private fun VoiceAddDraftPreview() = SeniorAssistantTheme {
     VoiceScreen(
         VoiceUiState(VoiceMode.WRITE, listOf(
-            VoiceMessage.Bot("언제, 무슨 일이 있으세요?", example = "모레 11시에 치과 가야 해"),
+            VoiceMessage.Bot("언제, 무슨 일이 있으세요?", example = "\"모레 11시에 치과 가야 해\""),
             VoiceMessage.Me("모레 11시에 치과 가야 해"),
             VoiceMessage.Draft("이렇게 넣을까요?", sampleDraft, null),
+        ), VoiceStatus.LISTEN),
+        "어르신", {}, {},
+    )
+}
+
+@Preview(widthDp = 1280, heightDp = 720)
+@Composable
+private fun VoiceAlarmDraftPreview() = SeniorAssistantTheme {
+    VoiceScreen(
+        VoiceUiState(VoiceMode.TALK, listOf(
+            VoiceMessage.Me("30분 뒤에 약 먹으라고 알람 맞춰 줘"),
+            VoiceMessage.Draft("이렇게 알람을 맞출까요?", Schedule(3, "약 복용", java.time.LocalDate.of(2026, 11, 13), LocalTime.of(16, 30), kind = ScheduleKind.ALARM), null),
         ), VoiceStatus.LISTEN),
         "어르신", {}, {},
     )
@@ -313,8 +353,8 @@ private fun VoiceAddDonePreview() = SeniorAssistantTheme {
 private fun VoiceEditDraftPreview() = SeniorAssistantTheme {
     VoiceScreen(
         VoiceUiState(VoiceMode.EDIT, listOf(
-            VoiceMessage.Bot("어떤 할 일을 바꾸거나 지울까요?", example = "병원 3시로 바꿔 줘"),
-            VoiceMessage.Me("오늘 병원 3시로 바꿔 줘"),
+            VoiceMessage.Bot("어떻게 바꿀까요?", example = "\"3시로 바꿔 줘\""),
+            VoiceMessage.Me("3시로 바꿔 줘"),
             VoiceMessage.Draft("이렇게 바꿀까요?", sampleHospital.copy(time = LocalTime.of(15, 0)), sampleHospital),
         ), VoiceStatus.LISTEN),
         "어르신", {}, {},
@@ -325,8 +365,8 @@ private fun VoiceEditDraftPreview() = SeniorAssistantTheme {
 @Composable
 private fun VoiceAskPreview() = SeniorAssistantTheme {
     VoiceScreen(
-        VoiceUiState(VoiceMode.ASK, listOf(
-            VoiceMessage.Bot("무엇이 궁금하세요?", example = "오늘 병원 몇 시야?"),
+        VoiceUiState(VoiceMode.TALK, listOf(
+            VoiceMessage.Bot("무엇을 도와드릴까요?", example = "\"내일 3시에 병원 가야 해\", \"병원 언제였지?\""),
             VoiceMessage.Me("오늘 병원 몇 시야?"),
             VoiceMessage.Thinking,
         ), VoiceStatus.THINK),
@@ -338,8 +378,8 @@ private fun VoiceAskPreview() = SeniorAssistantTheme {
 @Composable
 private fun VoiceErrorPreview() = SeniorAssistantTheme {
     VoiceScreen(
-        VoiceUiState(VoiceMode.ASK, listOf(
-            VoiceMessage.Bot("무엇이 궁금하세요?", example = "오늘 병원 몇 시야?"),
+        VoiceUiState(VoiceMode.TALK, listOf(
+            VoiceMessage.Bot("무엇을 도와드릴까요?", example = "\"내일 3시에 병원 가야 해\", \"병원 언제였지?\""),
             VoiceMessage.Bot("잘 못 들었어요. 다시 말씀해 주세요", isError = true),
         ), VoiceStatus.LISTEN),
         "어르신", {}, {},

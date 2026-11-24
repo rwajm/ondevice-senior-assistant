@@ -12,7 +12,7 @@ internal class Speaker(
     suspend fun speak(text: String): ByteArray? = speak(text, settings.getSettings().speechRate)
 
     suspend fun speak(text: String, rate: SpeechRate): ByteArray? = // null when it cannot be made
-        (queue.synthesize(text, speedOf(rate)) as? InferenceResult.Success)?.value
+        (queue.synthesize(forSpeech(text), speedOf(rate)) as? InferenceResult.Success)?.value // "3시" -> "세 시"
 
     private fun speedOf(rate: SpeechRate): Float = when (rate) {
         SpeechRate.SLOW -> 0.8f

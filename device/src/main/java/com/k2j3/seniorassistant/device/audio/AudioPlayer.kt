@@ -6,6 +6,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.media.MediaPlayer
 import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -20,7 +21,7 @@ import kotlinx.coroutines.withContext
  * 스피커로 도우미의 말(TTS WAV)을 읽어 준다. 앱에 하나만 두어 두 소리가 겹치지 않게 한다
  * (나중에 온 소리는 앞의 소리가 끝날 때까지 기다린다).
  */
-class AudioPlayer(context: Context) {
+class AudioPlayer(private val context: Context) {
     private val audioManager = context.getSystemService(AudioManager::class.java)
     private val mutex = Mutex()
 
@@ -39,6 +40,37 @@ class AudioPlayer(context: Context) {
             return false
         }
         return mutex.withLock { withContext(Dispatchers.IO) { playLocked(pcm) } }
+    }
+
+    /**
+     * 앱에 넣은 소리 파일(res/raw, 알람음)을 [millis] 동안 되풀이해 울린다. 말과 같은 스피커·음량.
+     * 부른 코루틴을 취소하면(확인했어요) 바로 멈춘다. 울리지 못하면 false.
+     */
+    suspend fun playLooped(rawRes: Int, millis: Long): Boolean = mutex.withLock {
+        val player = MediaPlayer()
+        val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT).setAudioAttributes(attributes).build()
+        try {
+            withContext(Dispatchers.IO) {
+                context.resources.openRawResourceFd(rawRes).use { player.setDataSource(it) }
+                player.setAudioAttributes(attributes)
+                player.isLooping = true
+                player.prepare()
+            }
+            audioManager.requestAudioFocus(focus)
+            player.start()
+            delay(millis)
+            true
+        } catch (e: java.io.IOException) {
+            Log.w(TAG, "cannot play sound $rawRes", e)
+            false
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "cannot play sound $rawRes", e)
+            false
+        } finally {
+            runCatching { player.stop() }
+            player.release()
+            audioManager.abandonAudioFocusRequest(focus)
+        }
     }
 
     private suspend fun playLocked(pcm: Pcm16): Boolean {

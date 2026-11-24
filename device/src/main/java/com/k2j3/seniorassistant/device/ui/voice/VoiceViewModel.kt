@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.k2j3.seniorassistant.device.audio.AudioPlayer
 import com.k2j3.seniorassistant.device.audio.VoiceRecorder
 import com.k2j3.seniorassistant.device.data.schedule.Schedule
+import com.k2j3.seniorassistant.device.data.schedule.ScheduleKind
 import com.k2j3.seniorassistant.device.server.BoardApiServer
 import com.k2j3.seniorassistant.device.server.VoiceAnswer
 import com.k2j3.seniorassistant.device.ui.common.koreanDate
@@ -19,8 +20,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** 말로 부탁하기에서 고른 카드 */
-enum class VoiceMode { WRITE, ASK, EDIT }
+/**
+ * 대화를 어디서 열었는지. 첫마디와 끝난 뒤 버튼만 다르고, 무엇을 할지(묻기·넣기)는 LLM이 말을 듣고 정한다.
+ * TALK: 처음 화면의 말로 부탁하기 / WRITE: 할 일 넣기 화면의 말로 넣기 / EDIT: 고르고 들어온 할 일을 말로 고치기
+ * ALARM: 알람 맞추기 화면의 말로 맞추기 (모델이 일정으로 보더라도 알람으로 넣는다)
+ */
+enum class VoiceMode { TALK, WRITE, EDIT, ALARM }
 
 /** 대화 말풍선 한 개 */
 sealed interface VoiceMessage {
@@ -42,14 +47,15 @@ data class VoiceUiState(
     val status: VoiceStatus,
     /** 대화가 끝나서 '또 물어보기/넣기/고치기'를 보여 줄 때 */
     val finished: Boolean = false,
-    /** 저장한 할 일의 날짜 (저장한 뒤 그 날의 달력으로 넘어간다) */
+    /** 저장한 할 일의 날짜 (저장한 뒤 그 날의 달력으로, 알람이면 알람 화면으로 넘어간다) */
     val savedDate: LocalDate? = null,
+    val savedAlarm: Boolean = false,
 )
 
 /**
  * 말로 부탁하기 대화 (FR-02, FR-03, FR-05).
- * 듣기 → server.voice.ask → 대답 / 초안 / 다시 묻기 / 준비 중.
- * 초안은 "응"을 들어야만 저장한다 (SCH-02 / SCH-03).
+ * 듣기 → server.voice.ask → 대답 / 초안 / 오전·오후 되묻기 / 다시 묻기 / 준비 중.
+ * 초안은 "응"을 들어야만 저장한다 (SCH-02 / SCH-03). 짧은 대답은 STT로만 듣는다 (server.voice.hear).
  */
 class VoiceViewModel(
     private val server: BoardApiServer,
@@ -59,7 +65,7 @@ class VoiceViewModel(
     private val speakHoldMillis: Long = 2_000,
 ) : ViewModel() {
 
-    private var mode = VoiceMode.ASK
+    private var mode = VoiceMode.TALK
     private var editing: Schedule? = null
     private var job: Job? = null
 
@@ -78,9 +84,9 @@ class VoiceViewModel(
         }
     }
 
-    /** '또 물어보기'는 이어서, '또 넣기/또 고치기'는 처음부터 */
+    /** '또 말하기'는 이어서, '또 넣기/또 고치기'는 처음부터 */
     fun again() {
-        if (mode != VoiceMode.ASK) return start(mode, editing?.id)
+        if (mode != VoiceMode.TALK) return start(mode, editing?.id)
         job?.cancel()
         state.update { it.copy(finished = false) }
         job = viewModelScope.launch { converse() }
@@ -89,24 +95,37 @@ class VoiceViewModel(
     fun stop() { job?.cancel() }
 
     private suspend fun converse() {
+        var halfDay: VoiceAnswer.AskHalfDay? = null // "오전 3시요, 오후 3시요?" 다음에는 그 대답으로 듣는다
         while (true) {
             val audio = listen()
-            when (val answer = think { askUntilReady(audio) }) {
+            val question = halfDay
+            halfDay = null
+            val answer = think { if (question != null) server.voice.chooseHalfDay(question, audio) else askUntilReady(audio) }
+            when (answer) {
+                is VoiceAnswer.AskHalfDay -> {
+                    if (answer.transcript.isNotBlank()) add(me(answer.transcript))
+                    add(VoiceMessage.Bot(answer.text)); say(answer.audio)
+                    halfDay = answer
+                }
                 is VoiceAnswer.Answered -> {
-                    add(VoiceMessage.Me(answer.transcript), VoiceMessage.Bot(answer.text))
+                    add(me(answer.transcript), VoiceMessage.Bot(answer.text))
                     say(answer.audio, holdIfSilent = false)
                     return finish()
                 }
                 is VoiceAnswer.AskAgain -> {
-                    if (answer.transcript.isNotBlank()) add(VoiceMessage.Me(answer.transcript))
+                    if (answer.transcript.isNotBlank()) add(me(answer.transcript))
                     add(VoiceMessage.Bot(answer.text)); say(answer.audio)
                 }
                 VoiceAnswer.NotReady -> {
                     add(VoiceMessage.Bot(answer.text, isError = true)); say(answer.audio)
                 }
                 is VoiceAnswer.Draft -> {
-                    val title = if (editing != null) "이렇게 바꿀까요?" else "이렇게 넣을까요?"
-                    add(VoiceMessage.Me(answer.transcript), VoiceMessage.Draft(title, answer.draft, editing))
+                    val title = when {
+                        editing != null -> "이렇게 바꿀까요?"
+                        answer.draft.kind == ScheduleKind.ALARM -> "이렇게 알람을 맞출까요?"
+                        else -> "이렇게 넣을까요?"
+                    }
+                    add(me(answer.transcript), VoiceMessage.Draft(title, answer.draft, editing))
                     say(answer.audio)
                     if (confirm(answer.draft)) return finish()
                 }
@@ -118,15 +137,15 @@ class VoiceViewModel(
     private suspend fun confirm(draft: Schedule): Boolean {
         while (true) {
             val audio = listen()
-            val heard = think { transcriptOf(server.voice.ask(audio)) }
-            if (heard.isNotBlank()) add(VoiceMessage.Me(heard))
+            val heard = think { server.voice.hear(audio) } // STT only: "응" does not need the LLM
+            if (heard.isNotBlank()) add(me(heard))
             when {
                 YES.any { it in heard } && NO.none { it in heard } -> {
                     save(draft)
                     val done = doneText(draft)
                     add(VoiceMessage.Bot(done))
                     sayText(done, holdIfSilent = false) // savedDate가 바뀌면 화면을 떠나서 읽기가 끊기므로 먼저 읽는다
-                    state.update { it.copy(savedDate = draft.date) }
+                    state.update { it.copy(savedDate = draft.date, savedAlarm = draft.kind == ScheduleKind.ALARM) }
                     return true
                 }
                 NO.any { it in heard } -> {
@@ -142,11 +161,13 @@ class VoiceViewModel(
 
     private suspend fun askUntilReady(audio: ByteArray): VoiceAnswer {
         repeat(3) {
-            val a = server.voice.ask(audio, editing)
+            val a = server.voice.ask(audio, editing, fixedKind())
             if (a == VoiceAnswer.NotReady) delay(1_000) else return a // 준비 중이면 1초 뒤 다시
         }
-        return server.voice.ask(audio, editing)
+        return server.voice.ask(audio, editing, fixedKind())
     }
+
+    private fun fixedKind(): ScheduleKind? = if (mode == VoiceMode.ALARM) ScheduleKind.ALARM else null
 
     private suspend fun save(draft: Schedule) {
         val e = editing
@@ -160,7 +181,11 @@ class VoiceViewModel(
 
     private fun doneText(d: Schedule): String {
         val whenText = "${d.date.koreanDate()} ${d.time?.koreanTime() ?: ""}".trim()
-        return if (editing == null) "넣었어요. $whenText ${d.title}, 때가 되면 미리 알려 드릴게요." else "바꿨어요. $whenText ${d.title}이에요."
+        return when {
+            editing != null -> "바꿨어요. $whenText ${d.title}이에요."
+            d.kind == ScheduleKind.ALARM -> "알람을 맞췄어요. $whenText ${d.title}, 그 시간에 알람으로 알려 드릴게요."
+            else -> "넣었어요. $whenText ${d.title}, 때가 되면 미리 알려 드릴게요."
+        }
     }
 
     /**
@@ -193,22 +218,19 @@ class VoiceViewModel(
         return result
     }
 
+    /** 어르신의 말: STT 글자의 띄어쓰기만 정리해서 보여 준다 (답을 정하는 데는 원래 글자를 썼다) */
+    private fun me(transcript: String) = VoiceMessage.Me(tidyTranscript(transcript))
+
     private fun add(vararg m: VoiceMessage) = state.update { it.copy(messages = it.messages + m, status = VoiceStatus.SPEAK) }
 
     private fun finish() = state.update { it.copy(status = VoiceStatus.SPEAK, finished = true) }
 
-    /** 카드마다 다른 첫마디와 예시 */
+    /** 어디서 열었는지에 따라 다른 첫마디와 예시 */
     private fun prompt() = when (mode) {
-        VoiceMode.WRITE -> VoiceMessage.Bot("언제, 무슨 일이 있으세요?", example = "모레 11시에 치과 가야 해")
-        VoiceMode.ASK -> VoiceMessage.Bot("무엇이 궁금하세요?", example = "오늘 병원 몇 시야?")
-        VoiceMode.EDIT -> VoiceMessage.Bot("어떤 할 일을 바꾸거나 지울까요?", example = "병원 3시로 바꿔 줘")
-    }
-
-    private fun transcriptOf(a: VoiceAnswer) = when (a) {
-        is VoiceAnswer.Answered -> a.transcript
-        is VoiceAnswer.Draft -> a.transcript
-        is VoiceAnswer.AskAgain -> a.transcript
-        VoiceAnswer.NotReady -> ""
+        VoiceMode.TALK -> VoiceMessage.Bot("무엇을 도와드릴까요?", example = "\"내일 3시에 병원 가야 해\", \"병원 언제였지?\"")
+        VoiceMode.WRITE -> VoiceMessage.Bot("언제, 무슨 일이 있으세요?", example = "\"모레 11시에 치과 가야 해\"")
+        VoiceMode.EDIT -> VoiceMessage.Bot("어떻게 바꿀까요?", example = "\"3시로 바꿔 줘\"")
+        VoiceMode.ALARM -> VoiceMessage.Bot("언제, 무엇을 알려 드릴까요?", example = "\"30분 뒤에 약 먹으라고 알려 줘\"")
     }
 
     private companion object {

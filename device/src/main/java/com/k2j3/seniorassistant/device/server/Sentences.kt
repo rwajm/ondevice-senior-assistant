@@ -2,6 +2,7 @@ package com.k2j3.seniorassistant.device.server
 
 import com.k2j3.seniorassistant.device.ai.document.DocumentFields
 import com.k2j3.seniorassistant.device.data.schedule.Schedule
+import com.k2j3.seniorassistant.device.data.schedule.ScheduleKind
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
@@ -18,8 +19,18 @@ internal object Sentences { // spoken and shown as is
     fun found(schedules: List<Schedule>, today: LocalDate): String =
         if (schedules.isEmpty()) NOT_FOUND else schedules.joinToString(" ") { describe(it, today) }
 
+    // an alarm says so: it rings once at the time instead of reminding ahead like a calendar entry
     fun draft(schedule: Schedule, today: LocalDate): String =
-        "이렇게 적을까요? ${describe(schedule, today)}"
+        (if (schedule.kind == ScheduleKind.ALARM) "이렇게 알람을 맞출까요? " else "이렇게 적을까요? ") +
+            describe(schedule, today, ending = if (schedule.kind == ScheduleKind.ALARM) " 알람이에요." else " 일정이에요.")
+
+    // morning: the morning candidate of a 1-11 o'clock time said without 오전/오후
+    fun askHalfDay(morning: LocalTime): String {
+        val time = if (morning.minute == 0) "${morning.hour}시요" else "${morning.hour}시 ${morning.minute}분이요"
+        return "오전 $time, 오후 $time?"
+    }
+
+    fun askHalfDayAgain(morning: LocalTime): String = "오전인지 오후인지 말씀해 주세요. " + askHalfDay(morning)
 
     fun dailySummary(schedules: List<Schedule>, today: LocalDate): String =
         "오늘 일정은 ${schedules.size}개예요. " + found(schedules, today)
@@ -31,11 +42,14 @@ internal object Sentences { // spoken and shown as is
         return "이런 내용이 있어요. " + (time + what).joinToString(" ") + "." + items
     }
 
-    private fun describe(schedule: Schedule, today: LocalDate): String {
+    private fun describe(
+        schedule: Schedule,
+        today: LocalDate,
+        ending: String = if (schedule.kind == ScheduleKind.ALARM) " 알람이 있어요." else " 일정이 있어요.",
+    ): String {
         val time = listOfNotNull(day(schedule.date, today), schedule.time?.let(::clock))
         val what = listOf(schedule.place, schedule.title).filter { it.isNotBlank() }
-        return time.joinToString(" ") + ", " + what.joinToString(" ") + " 일정이 있어요." +
-            items(schedule.items)
+        return time.joinToString(" ") + ", " + what.joinToString(" ") + ending + items(schedule.items)
     }
 
     private fun items(items: List<String>): String =

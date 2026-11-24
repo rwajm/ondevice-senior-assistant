@@ -30,6 +30,10 @@ object AppIcons {
     )
     val Pencil = line("pencil", "M4 20h4L19 9l-4-4L4 16z", "M13.5 6.5l4 4")
     val Document = line("document", "M6 3h8l4 4v14H6z", "M14 3v4h4", "M9 12h6", "M9 16h6")
+    val Camera = line(
+        "camera", "M4 7h4l1.5-2h5L16 7h4a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z",
+        "M16 13a4 4 0 1 1-8 0a4 4 0 1 1 8 0z",
+    )
     val Gear = line(
         "gear",
         "M15 12a3 3 0 1 1-6 0a3 3 0 1 1 6 0z",

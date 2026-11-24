@@ -4,6 +4,7 @@
 # 사용법 (PowerShell, 프로젝트 폴더에서):
 #   powershell -ExecutionPolicy Bypass -File scripts\setup-models.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\setup-models.ps1 -Serial 192.168.0.61:5555
+#   powershell -ExecutionPolicy Bypass -File scripts\setup-models.ps1 -LlmBundle C:\models\team8_v3_bias_corrected
 #   powershell -ExecutionPolicy Bypass -File scripts\setup-models.ps1 -DownloadOnly
 #
 # 먼저 앱을 debug 빌드로 보드에 한 번 설치해 둔다 (run-as는 debug 빌드에서만 된다).
@@ -11,6 +12,7 @@
 # 압축 풀기에 Windows 10 이상에 들어 있는 tar.exe를 쓴다.
 param(
     [string]$Serial = "",
+    [string]$LlmBundle = "",
     [switch]$DownloadOnly
 )
 
@@ -25,6 +27,7 @@ $Cache = if ($env:SENIOR_MODELS_CACHE) { $env:SENIOR_MODELS_CACHE } else { Join-
 $Tar = Join-Path $env:SystemRoot "System32\tar.exe"
 $SttDir = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
 $TtsDir = "vits-mimic3-ko_KO-kss_low"
+$Root = Split-Path -Parent $PSScriptRoot
 
 function Step($text) { Write-Host ""; Write-Host "==> $text" }
 function Fail($text) { Write-Host ""; Write-Host "[실패] $text" -ForegroundColor Red; exit 1 }
@@ -49,6 +52,14 @@ $ModelFiles = @(
     @{ Path = "tts/ko_KO-kss_low.onnx"; Sha = "552af73776a1c2a705d828e1435592419eb42b1de9cc2bcb3bb5bcf6efb90cd9" },
     @{ Path = "tts/tokens.txt"; Sha = "d2a7e6696166162a0613812a02f23f2f682a12e05a4cc9864193a3c71c1f3ecb" }
 )
+$LlmModelNames = @(
+    "genie_config_npu.json", "runtime_prompt_template.txt", "tokenizer.json", "llama32_hf_v68.bin", "htp_backend_ext_config.json"
+)
+$QualcommLibraryNames = @(
+    "libGenie.so", "libQnnHtp.so", "libQnnSystem.so", "libQnnHtpV68Stub.so", "libQnnHtpV68Skel.so",
+    "libQnnHtpNetRunExtensions.so", "libc++_shared.so"
+)
+$LlmModelFiles = @()
 $SttSha = "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51"
 
 # ---------------------------------------------------------------- 1. 받기
@@ -98,7 +109,40 @@ Copy-Item -LiteralPath (Join-Path $Work "$TtsDir\tokens.txt") -Destination (Join
 Copy-Item -Recurse -LiteralPath (Join-Path $Work "$TtsDir\espeak-ng-data") -Destination (Join-Path $Models "tts")
 Remove-Item -Recurse -Force -LiteralPath $Work
 
+if ($LlmBundle) {
+    if (-not (Test-Path -LiteralPath $LlmBundle -PathType Container)) { Fail "LLM 번들 폴더가 없습니다: $LlmBundle" }
+    $LlmBundle = (Resolve-Path -LiteralPath $LlmBundle).Path
+    Step "LLM 번들 확인 및 Qualcomm 라이브러리 복사"
+    $LlmModels = Join-Path $Models "llm"
+    $NativeLibs = Join-Path $Root "device\src\main\jniLibs\arm64-v8a"
+    New-Item -ItemType Directory -Force -Path $LlmModels, $NativeLibs | Out-Null
+    foreach ($name in $LlmModelNames) {
+        $source = Join-Path $LlmBundle $name
+        $target = Join-Path $LlmModels $name
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf) -or (Get-Item -LiteralPath $source).Length -eq 0) {
+            Fail "LLM 번들에 없거나 비어 있습니다: $name"
+        }
+        $sum = Sha256 $source
+        Copy-Item -Force -LiteralPath $source -Destination $target
+        if ((Sha256 $target) -ne $sum) { Fail "LLM 복사 뒤 해시가 다릅니다: $name" }
+        $LlmModelFiles += @{ Path = "llm/$name"; Sha = $sum }
+    }
+    foreach ($name in $QualcommLibraryNames) {
+        $source = Join-Path $LlmBundle $name
+        $target = Join-Path $NativeLibs $name
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf) -or (Get-Item -LiteralPath $source).Length -eq 0) {
+            Fail "LLM 번들에 Qualcomm 라이브러리가 없습니다: $name"
+        }
+        $sum = Sha256 $source
+        Copy-Item -Force -LiteralPath $source -Destination $target
+        if ((Sha256 $target) -ne $sum) { Fail "Qualcomm 라이브러리 복사 뒤 해시가 다릅니다: $name" }
+    }
+}
+
 foreach ($m in $ModelFiles) {
+    if ((Sha256 (Join-Path $Models $m.Path)) -ne $m.Sha) { Fail "$($m.Path) 해시가 다릅니다" }
+}
+foreach ($m in $LlmModelFiles) {
     if ((Sha256 (Join-Path $Models $m.Path)) -ne $m.Sha) { Fail "$($m.Path) 해시가 다릅니다" }
 }
 $FileCount = (Get-ChildItem -Recurse -File -LiteralPath $Models).Count
@@ -112,7 +156,20 @@ if ($DownloadOnly) {
 }
 
 # ---------------------------------------------------------------- 3. 보드에 올리기
-Step "3/4 보드에 올리기"
+$BoardStep = "3/4"
+$VerifyStep = "4/4"
+if ($LlmBundle) {
+    Step "3/5 Qualcomm 라이브러리를 포함해 debug APK 설치"
+    $Gradle = Join-Path $Root "gradlew.bat"
+    if (-not (Test-Path -LiteralPath $Gradle)) { Fail "gradlew.bat를 찾을 수 없습니다: $Gradle" }
+    if ($Serial) { $env:ANDROID_SERIAL = $Serial } # installDebug도 -Serial로 고른 보드에만 설치한다
+    & $Gradle :device:installDebug --console=plain
+    if ($LASTEXITCODE -ne 0) { Fail "Qualcomm 라이브러리를 포함한 debug APK 설치에 실패했습니다" }
+    $BoardStep = "4/5"
+    $VerifyStep = "5/5"
+}
+
+Step "$BoardStep 보드에 올리기"
 $Adb = (Get-Command adb -ErrorAction SilentlyContinue).Source
 if (-not $Adb) {
     foreach ($sdk in @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA "Android\Sdk"))) {
@@ -133,23 +190,35 @@ Adb shell run-as $Pkg true 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) { Fail "run-as가 안 됩니다. release가 아니라 debug 빌드로 설치하세요" }
 
 $Tmp = "/data/local/tmp/senior-assistant-models"
+$Components = @("vad", "stt", "tts")
+if ($LlmBundle) { $Components += "llm" }
+Adb shell am force-stop $Pkg | Out-Null
 Adb shell rm -rf $Tmp | Out-Null
 Write-Host "  올리는 중 (무선이면 1~2분)..."
-Adb push $Models $Tmp | Out-Null
-if ($LASTEXITCODE -ne 0) { Fail "보드로 올리지 못했습니다" }
+foreach ($component in $Components) {
+    Adb push (Join-Path $Models $component) "$Tmp/$component" | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail "보드로 올리지 못했습니다: $component" }
+}
 Adb shell chmod -R a+rX $Tmp | Out-Null # 앱이 shell 소유 파일을 읽을 수 있게
-Adb shell "run-as $Pkg sh -c 'rm -rf files/models.new && cp -r $Tmp files/models.new && rm -rf files/models && mv files/models.new files/models'"
-if ($LASTEXITCODE -ne 0) { Fail "앱 폴더로 복사하지 못했습니다" }
+foreach ($component in $Components) {
+    Adb shell "run-as $Pkg sh -c 'mkdir -p files/models && rm -rf files/models/${component}.new && cp -r $Tmp/$component files/models/${component}.new && rm -rf files/models/$component && mv files/models/${component}.new files/models/$component'"
+    if ($LASTEXITCODE -ne 0) { Fail "앱 폴더로 복사하지 못했습니다: $component" }
+}
 Adb shell rm -rf $Tmp | Out-Null
 
-$boardCount = (Adb shell "run-as $Pkg sh -c 'find files/models -type f | wc -l'" | Out-String).Trim()
+$boardCount = 0
+foreach ($component in $Components) {
+    $boardCount += [int]((Adb shell "run-as $Pkg sh -c 'find files/models/$component -type f | wc -l'" | Out-String).Trim())
+}
 if ($boardCount -ne "$FileCount") { Fail "보드의 파일 수($boardCount)가 이 컴퓨터($FileCount)와 다릅니다" }
-$boardSha = ((Adb shell "run-as $Pkg sha256sum files/models/stt/model.int8.onnx" | Out-String).Trim() -split "\s+")[0]
-if ($boardSha -ne $SttSha) { Fail "보드의 STT 모델 해시가 다릅니다" }
+foreach ($m in @($ModelFiles + $LlmModelFiles)) {
+    $boardSha = ((Adb shell "run-as $Pkg sha256sum files/models/$($m.Path)" | Out-String).Trim() -split "\s+")[0]
+    if ($boardSha -ne $m.Sha) { Fail "보드의 해시가 다릅니다: $($m.Path)" }
+}
 Write-Host "  파일 $boardCount 개, 해시 일치"
 
 # ---------------------------------------------------------------- 4. 확인
-Step "4/4 앱을 다시 켜서 확인"
+Step "$VerifyStep 앱을 다시 켜서 확인"
 Adb shell am force-stop $Pkg | Out-Null
 Adb logcat -c | Out-Null
 Adb shell monkey -p $Pkg -c android.intent.category.LAUNCHER 1 2>$null | Out-Null
@@ -159,7 +228,12 @@ for ($i = 0; $i -lt 15 -and -not $log; $i++) {
     $log = (Adb logcat -d -s SeniorAssistantApp 2>$null | Select-String -Pattern "model files (ready|missing)" | Out-String).Trim()
 }
 Write-Host "  $(if ($log) { $log } else { '(로그 없음)' })"
-if ($log -notmatch "model files ready") { Fail "앱이 모델을 찾지 못했습니다 (위 로그 확인)" }
-
-Write-Host ""
-Write-Host "완료: 모델을 올렸고 앱이 찾았습니다."
+if ($LlmBundle) {
+    if ($log -notmatch "model files ready") { Fail "앱이 모델을 찾지 못했습니다 (위 로그 확인)" }
+    Write-Host ""
+    Write-Host "완료: 모델·Qualcomm 라이브러리를 설치했고 앱이 실제 LLM 번들을 찾았습니다."
+} else {
+    Write-Host "  LLM 번들을 지정하지 않아 기존 LLM 폴더는 보존했습니다. 새 앱에서 실제 LLM을 쓰려면 -LlmBundle을 사용하세요."
+    Write-Host ""
+    Write-Host "완료: 음성 모델을 올렸고 기존 LLM 폴더는 보존했습니다."
+}

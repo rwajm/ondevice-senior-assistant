@@ -8,7 +8,9 @@ import androidx.room.Update
 import java.time.LocalDate
 import java.time.LocalTime
 
-private const val PLACE_MATCH = "(:place IS NULL OR place LIKE '%' || :place || '%')"
+// the model's place ("병원 가는 거 언제야?" -> "병원") is often only in the title ("병원 방문", no place): look in both
+private const val PLACE_MATCH =
+    "(:place IS NULL OR place LIKE '%' || :place || '%' OR title LIKE '%' || :place || '%')"
 
 @Dao
 interface ScheduleDao {

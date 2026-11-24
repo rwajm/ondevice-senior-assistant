@@ -4,8 +4,11 @@ import android.app.Application
 import android.util.Log
 import com.k2j3.seniorassistant.device.ai.ModelFiles
 import com.k2j3.seniorassistant.device.ai.document.DocumentAnalyzer
-import com.k2j3.seniorassistant.device.ai.document.FakeExternalAiClient
+import com.k2j3.seniorassistant.device.ai.document.OpenAiClient
 import com.k2j3.seniorassistant.device.ai.llm.FakeLlmModule
+import com.k2j3.seniorassistant.device.ai.llm.GenieDialog
+import com.k2j3.seniorassistant.device.ai.llm.GenieLlmModule
+import com.k2j3.seniorassistant.device.ai.llm.LlmModule
 import com.k2j3.seniorassistant.device.ai.queue.InferenceQueue
 import com.k2j3.seniorassistant.device.ai.stt.FakeSttModule
 import com.k2j3.seniorassistant.device.ai.stt.SherpaSttModule
@@ -27,11 +30,12 @@ import kotlinx.coroutines.launch
 class SeniorAssistantApp : Application() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    val server: BoardApiServer by lazy { // the LLM and the OpenAI client are still fakes
+    val server: BoardApiServer by lazy {
         BoardApiServer.create(
             this,
-            InferenceQueue(stt(), FakeLlmModule(), tts()),
-            DocumentAnalyzer(FakeExternalAiClient()),
+            InferenceQueue(stt(), llm(), tts()),
+            // 키가 비어 있으면 OpenAiClient가 실패를 돌려주고 문서 화면은 기존의 안내 문구를 보여 준다.
+            DocumentAnalyzer(OpenAiClient(BuildConfig.OPENAI_API_KEY)),
         )
     }
 
@@ -56,6 +60,15 @@ class SeniorAssistantApp : Application() {
 
     private fun tts(): TtsModule =
         if (models.missing(models.ttsFiles).isEmpty()) SherpaTtsModule(models) else FakeTtsModule()
+
+    // Qualcomm 라이브러리(jniLibs)와 LLM 번들(models/llm)이 둘 다 있어야 NPU의 실제 모델을 쓴다
+    private fun llm(): LlmModule {
+        val missing = models.missing(models.llmFiles)
+        val unavailable = GenieDialog.unavailableReason
+        if (missing.isEmpty() && unavailable == null) return GenieLlmModule(models, applicationInfo.nativeLibraryDir)
+        Log.w(TAG, "fake LLM: " + (unavailable?.let { "Genie not available ($it)" } ?: "missing $missing"))
+        return FakeLlmModule()
+    }
 
     private fun logModelFiles() {
         val missing = models.missing()

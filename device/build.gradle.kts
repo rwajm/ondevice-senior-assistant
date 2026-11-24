@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -20,9 +22,34 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        // 문서 읽기(EXT-01)의 OpenAI 키: local.properties(git에 올리지 않음)의 openai.api.key.
+        // 없으면 빈 값으로 빌드되고, 문서 읽기는 "지금은 문서를 읽을 수 없어요"로 답한다.
+        val localProperties = Properties().apply {
+            rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+        }
+        buildConfigField("String", "OPENAI_API_KEY", "\"${localProperties.getProperty("openai.api.key", "").trim()}\"")
+
         ndk {
             // QCS6490 board and the Apple Silicon emulator; keeps the other sherpa-onnx ABIs (~90 MB) out
             abiFilters += "arm64-v8a"
+        }
+    }
+
+    // the JNI bridge to Qualcomm Genie (on-device LLM on the NPU), see src/main/cpp/genie_jni.c
+    ndkVersion = "27.0.12077973"
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+    packaging {
+        jniLibs {
+            // installed as real files: the NPU's DSP loads libQnnHtpV68Skel.so from the app's lib folder
+            useLegacyPackaging = true
+            // the Qualcomm runtime (src/main/jniLibs, copied from the LLM bundle, not in git) goes in as shipped;
+            // the skel is a Hexagon DSP binary that the Android strip tool must not touch
+            keepDebugSymbols += listOf("**/libQnn*.so", "**/libGenie.so", "**/libc++_shared.so")
         }
     }
 
@@ -40,6 +67,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -61,6 +89,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.room.runtime)
+    implementation(libs.droiduvc)
     ksp(libs.androidx.room.compiler)
     // STT (SenseVoice), VAD (Silero), TTS (VITS) on the CPU. Not on Maven; the AAR is the official
     // GitHub release asset: k2-fsa/sherpa-onnx v1.13.8, sha256 633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96

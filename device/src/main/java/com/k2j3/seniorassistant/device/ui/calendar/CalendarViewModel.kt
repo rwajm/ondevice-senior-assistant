@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.k2j3.seniorassistant.device.data.schedule.Schedule
 import com.k2j3.seniorassistant.device.server.ScheduleApi
+import com.k2j3.seniorassistant.device.ui.schedule.calendarOnly
 import com.k2j3.seniorassistant.device.ui.schedule.on
 import java.time.LocalDate
 import java.time.YearMonth
@@ -49,7 +50,7 @@ class CalendarViewModel(private val schedules: ScheduleApi) : ViewModel() {
 
     private fun loadMonth(month: YearMonth) {
         viewModelScope.launch {
-            monthSchedules = schedules.getSchedules(month.atDay(1), month.atEndOfMonth()).map { it.schedule }
+            monthSchedules = schedules.getSchedules(month.atDay(1), month.atEndOfMonth()).map { it.schedule }.calendarOnly()
             state.update {
                 it.copy(today = LocalDate.now(), daysWithSchedule = monthSchedules.map { s -> s.date }.toSet(), selectedList = monthSchedules.on(it.selected))
             }

@@ -28,8 +28,10 @@ class InferenceQueue(
     suspend fun load() = mutex.withLock { // waits for running inferences
         _state.value = ModelState.LOADING
         _state.value = try {
-            stt.load()
+            // the LLM first, while the app is small: loading it takes about 3.2 GB of the board's memory for
+            // a few seconds (1.7 GB after); on top of STT and TTS that peak gets the app killed by lmkd
             llm.load()
+            stt.load()
             tts.load()
             ModelState.READY
         } catch (e: CancellationException) {

@@ -16,6 +16,8 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.k2j3.seniorassistant.device.SeniorAssistantApp
+import com.k2j3.seniorassistant.device.ui.alarm.AlarmRoute
+import com.k2j3.seniorassistant.device.ui.alarm.AlarmViewModel
 import com.k2j3.seniorassistant.device.ui.calendar.CalendarRoute
 import com.k2j3.seniorassistant.device.ui.calendar.CalendarViewModel
 import com.k2j3.seniorassistant.device.ui.document.DocumentRoute
@@ -32,7 +34,6 @@ import com.k2j3.seniorassistant.device.ui.schedule.TodoRoute
 import com.k2j3.seniorassistant.device.ui.schedule.TodoViewModel
 import com.k2j3.seniorassistant.device.ui.settings.SettingsRoute
 import com.k2j3.seniorassistant.device.ui.settings.SettingsViewModel
-import com.k2j3.seniorassistant.device.ui.voice.VoiceChooseScreen
 import com.k2j3.seniorassistant.device.ui.voice.VoiceMode
 import com.k2j3.seniorassistant.device.ui.voice.VoiceRoute
 import com.k2j3.seniorassistant.device.ui.voice.VoiceViewModel
@@ -53,8 +54,9 @@ fun AppNavDisplay(modifier: Modifier = Modifier) {
     val calendar = viewModel { CalendarViewModel(server.schedules) }
     val form = viewModel { ScheduleFormViewModel(server.schedules) }
     val voice = viewModel { VoiceViewModel(server, app.player, app.recorder) }
+    val alarms = viewModel { AlarmViewModel(server.schedules) }
     val homeState by home.uiState.collectAsState()
-    val documents = viewModel { DocumentViewModel(server) }
+    val documents = viewModel { DocumentViewModel(server, app.player) }
     val settings = viewModel { SettingsViewModel(server, app.player) }
     val notices = viewModel { NoticeViewModel(server, app.player) }
 
@@ -71,9 +73,9 @@ fun AppNavDisplay(modifier: Modifier = Modifier) {
                     viewModel = home,
                     actions = HomeActions(
                         openTodo = { go(ScheduleList()) },
-                        openWrite = { go(Calendar) },
+                        openAlarms = { go(AlarmList) },
                         openDocument = { documents.reset(); go(DocumentSource) },
-                        openVoice = { go(Voice) },
+                        openVoice = { go(VoiceTalk(VoiceMode.TALK.name)) }, // 고르는 화면 없이 바로 대화
                         openSettings = { go(Settings) },
                     ),
                     onExit = { activity?.finish() },
@@ -84,6 +86,15 @@ fun AppNavDisplay(modifier: Modifier = Modifier) {
                     viewModel = todo,
                     onBack = goBack,
                     onOtherDate = { go(Calendar) },
+                    onWrite = { go(ScheduleCreate()) },
+                    onEdit = { id -> go(ScheduleEdit(id)) },
+                )
+            }
+            entry<AlarmList> {
+                AlarmRoute(
+                    viewModel = alarms,
+                    onBack = goBack,
+                    onAdd = { go(ScheduleCreate(alarm = true)) },
                     onEdit = { id -> go(ScheduleEdit(id)) },
                 )
             }
@@ -99,9 +110,10 @@ fun AppNavDisplay(modifier: Modifier = Modifier) {
                 LaunchedEffect(key) {
                     val date = key.date.takeIf { it.isNotEmpty() }?.let(LocalDate::parse) ?: LocalDate.now()
                     val prefill = if (key.fromDocument) documents.resultSchedule() else null
-                    form.start(FormMode.WRITE, prefill?.date ?: date, prefill = prefill)
+                    form.start(FormMode.WRITE, prefill?.date ?: date, prefill = prefill, alarm = key.alarm)
                 }
-                ScheduleFormRoute(viewModel = form, onBack = goBack, onVoice = { go(VoiceTalk(VoiceMode.WRITE.name)) }, onDone = goBack)
+                val mode = if (key.alarm) VoiceMode.ALARM else VoiceMode.WRITE
+                ScheduleFormRoute(viewModel = form, onBack = goBack, onVoice = { go(VoiceTalk(mode.name)) }, onDone = goBack)
             }
             entry<ScheduleEdit> { key ->
                 LaunchedEffect(key) { form.start(FormMode.EDIT, editId = key.scheduleId) }
@@ -110,18 +122,15 @@ fun AppNavDisplay(modifier: Modifier = Modifier) {
                     onVoice = { go(VoiceTalk(VoiceMode.EDIT.name, key.scheduleId)) },
                 )
             }
-            entry<Voice> {
-                VoiceChooseScreen(onBack = goBack, onChoose = { mode -> go(VoiceTalk(mode.name)) })
-            }
             entry<VoiceTalk> { key ->
                 LaunchedEffect(key) { voice.start(VoiceMode.valueOf(key.mode), key.editingId.takeIf { it != 0L }) }
                 DisposableEffect(key) { onDispose { voice.stop() } }
                 VoiceRoute(
                     viewModel = voice, userName = homeState.userName.ifBlank { "어르신" }, onStop = goBack,
-                    onSaved = { date ->
-                        calendar.show(date)
+                    onSaved = { date, alarm -> // 저장한 것을 보여 준다: 일정은 그 날의 달력, 알람은 알람 화면
+                        if (!alarm) calendar.show(date)
                         while (backStack.size > 1) backStack.removeLastOrNull()
-                        backStack.add(Calendar)
+                        backStack.add(if (alarm) AlarmList else Calendar)
                     },
                 )
             }
